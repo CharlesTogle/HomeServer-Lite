@@ -26,6 +26,27 @@ import {
   formatTimestamp,
 } from '../utils/format.ts'
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function getTouchDistance(
+  first: { clientX: number; clientY: number },
+  second: { clientX: number; clientY: number },
+): number {
+  return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY)
+}
+
+function getTouchCenter(
+  first: { clientX: number; clientY: number },
+  second: { clientX: number; clientY: number },
+): { x: number; y: number } {
+  return {
+    x: (first.clientX + second.clientX) / 2,
+    y: (first.clientY + second.clientY) / 2,
+  }
+}
+
 interface MediaViewerProps {
   currentFolderName: string | null
   inspectedFolder: FolderRecord | null
@@ -120,7 +141,7 @@ function DocumentViewer(props: { file: FileRecord }): React.JSX.Element {
       <iframe
         src={resolveApiUrl(`/api/files/${props.file.id}/download`)}
         title={props.file.name}
-        className="h-[480px] w-full rounded-lg"
+        className="h-[60dvh] min-h-[320px] w-full rounded-lg sm:h-[480px]"
       />
     )
   }
@@ -140,9 +161,9 @@ function DocumentViewer(props: { file: FileRecord }): React.JSX.Element {
   if (isEditing && isMarkdown) {
     return (
       <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           <button
-            className={secondaryButtonClass}
+            className={`${secondaryButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={handleCancelEdit}
             disabled={updateMutation.isPending}
@@ -150,7 +171,7 @@ function DocumentViewer(props: { file: FileRecord }): React.JSX.Element {
             Cancel
           </button>
           <button
-            className={primaryButtonClass}
+            className={`${primaryButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={handleSave}
             disabled={updateMutation.isPending}
@@ -165,7 +186,7 @@ function DocumentViewer(props: { file: FileRecord }): React.JSX.Element {
         </div>
         <textarea
           aria-label="Edit markdown content"
-          className="max-h-[480px] min-h-[300px] w-full resize-y rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 font-mono text-sm leading-relaxed text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+          className="max-h-[60dvh] min-h-[280px] w-full resize-y rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 font-mono text-sm leading-relaxed text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] sm:max-h-[480px] sm:min-h-[300px]"
           value={editContent}
           onChange={(event) => setEditContent(event.target.value)}
           spellCheck={false}
@@ -187,7 +208,7 @@ function DocumentViewer(props: { file: FileRecord }): React.JSX.Element {
             Edit
           </button>
         </div>
-        <div className="max-h-[440px] w-full overflow-auto rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 text-sm leading-relaxed text-[var(--on-surface)]">
+        <div className="max-h-[60dvh] w-full overflow-auto rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 text-sm leading-relaxed text-[var(--on-surface)] sm:max-h-[440px]">
           <div className="markdown-body">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
@@ -197,7 +218,7 @@ function DocumentViewer(props: { file: FileRecord }): React.JSX.Element {
   }
 
   return (
-    <pre className="max-h-[480px] w-full overflow-auto rounded-lg bg-[var(--inverse-surface)] p-4 text-sm leading-relaxed text-[var(--inverse-on-surface)]">
+    <pre className="max-h-[60dvh] w-full overflow-auto rounded-lg bg-[var(--inverse-surface)] p-4 text-sm leading-relaxed text-[var(--inverse-on-surface)] sm:max-h-[480px]">
       <code>{content}</code>
     </pre>
   )
@@ -210,7 +231,21 @@ function ImageViewer(props: { src: string; alt: string }): React.JSX.Element {
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [imageLoaded, setImageLoaded] = useState(false)
   const [naturalDims, setNaturalDims] = useState<{ w: number; h: number } | null>(null)
-  const imgRef = useRef<HTMLImageElement>(null)
+  const touchStateRef = useRef<
+    | {
+        mode: 'pan'
+        startOffset: { x: number; y: number }
+        startTouch: { x: number; y: number }
+      }
+    | {
+        mode: 'pinch'
+        startCenter: { x: number; y: number }
+        startDistance: number
+        startOffset: { x: number; y: number }
+        startZoom: number
+      }
+    | null
+  >(null)
 
   const ZOOM_STEP = 0.25
   const MIN_ZOOM = 0.25
@@ -220,15 +255,15 @@ function ImageViewer(props: { src: string; alt: string }): React.JSX.Element {
     if (!event.ctrlKey && !event.metaKey) return
     event.preventDefault()
     const delta = event.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
-    setZoom((prev) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev + delta)))
+    setZoom((prev) => clamp(prev + delta, MIN_ZOOM, MAX_ZOOM))
   }
 
   function zoomIn(): void {
-    setZoom((prev) => Math.min(MAX_ZOOM, prev + ZOOM_STEP))
+    setZoom((prev) => clamp(prev + ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))
   }
 
   function zoomOut(): void {
-    setZoom((prev) => Math.max(MIN_ZOOM, prev - ZOOM_STEP))
+    setZoom((prev) => clamp(prev - ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))
   }
 
   function resetZoom(): void {
@@ -252,11 +287,85 @@ function ImageViewer(props: { src: string; alt: string }): React.JSX.Element {
     setIsDragging(false)
   }
 
+  function handleTouchStart(event: React.TouchEvent<HTMLDivElement>): void {
+    if (event.touches.length === 2) {
+      const [firstTouch, secondTouch] = [event.touches[0], event.touches[1]]
+      if (firstTouch === undefined || secondTouch === undefined) {
+        return
+      }
+
+      touchStateRef.current = {
+        mode: 'pinch',
+        startCenter: getTouchCenter(firstTouch, secondTouch),
+        startDistance: getTouchDistance(firstTouch, secondTouch),
+        startOffset: offset,
+        startZoom: zoom,
+      }
+      return
+    }
+
+    const firstTouch = event.touches[0]
+    if (firstTouch !== undefined && zoom > 1) {
+      touchStateRef.current = {
+        mode: 'pan',
+        startOffset: offset,
+        startTouch: { x: firstTouch.clientX, y: firstTouch.clientY },
+      }
+    }
+  }
+
+  function handleTouchMove(event: React.TouchEvent<HTMLDivElement>): void {
+    const touchState = touchStateRef.current
+    if (touchState === null) {
+      return
+    }
+
+    if (touchState.mode === 'pinch' && event.touches.length === 2) {
+      const [firstTouch, secondTouch] = [event.touches[0], event.touches[1]]
+      if (firstTouch === undefined || secondTouch === undefined) {
+        return
+      }
+
+      event.preventDefault()
+      const nextCenter = getTouchCenter(firstTouch, secondTouch)
+      const nextDistance = getTouchDistance(firstTouch, secondTouch)
+      const nextZoom = clamp(
+        touchState.startZoom * (nextDistance / touchState.startDistance),
+        MIN_ZOOM,
+        MAX_ZOOM,
+      )
+
+      setZoom(nextZoom)
+      setOffset({
+        x: touchState.startOffset.x + (nextCenter.x - touchState.startCenter.x),
+        y: touchState.startOffset.y + (nextCenter.y - touchState.startCenter.y),
+      })
+      return
+    }
+
+    if (touchState.mode === 'pan' && event.touches.length === 1) {
+      const firstTouch = event.touches[0]
+      if (firstTouch === undefined) {
+        return
+      }
+
+      event.preventDefault()
+      setOffset({
+        x: touchState.startOffset.x + (firstTouch.clientX - touchState.startTouch.x),
+        y: touchState.startOffset.y + (firstTouch.clientY - touchState.startTouch.y),
+      })
+    }
+  }
+
+  function handleTouchEnd(): void {
+    touchStateRef.current = null
+  }
+
   const zoomPercent = Math.round(zoom * 100)
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] px-3 py-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] px-3 py-2 sm:flex-nowrap sm:py-1.5">
         <div className="flex items-center gap-1">
           <button
             aria-label="Zoom out"
@@ -298,17 +407,20 @@ function ImageViewer(props: { src: string; alt: string }): React.JSX.Element {
           )}
       </div>
 
-      <div
-        className="relative flex max-h-[480px] min-h-[240px] items-start justify-center overflow-hidden rounded-lg bg-[var(--surface-container)]"
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
-      >
+       <div
+         className="relative flex max-h-[60dvh] min-h-[240px] items-start justify-center overflow-hidden rounded-lg bg-[var(--surface-container)] sm:max-h-[480px]"
+         onWheel={handleWheel}
+         onMouseDown={handleMouseDown}
+         onMouseMove={handleMouseMove}
+         onMouseUp={handleMouseUp}
+         onMouseLeave={handleMouseUp}
+         onTouchStart={handleTouchStart}
+         onTouchMove={handleTouchMove}
+         onTouchEnd={handleTouchEnd}
+         onTouchCancel={handleTouchEnd}
+         style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+        >
         <img
-          ref={imgRef}
           src={props.src}
           alt={props.alt}
           onLoad={(event) => {
@@ -321,6 +433,7 @@ function ImageViewer(props: { src: string; alt: string }): React.JSX.Element {
             transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
             transformOrigin: '0 0',
             margin: zoom <= 1 ? 'auto' : undefined,
+            touchAction: zoom > 1 ? 'none' : 'pan-y',
           }}
           draggable={false}
         />
@@ -338,6 +451,21 @@ function ImageFullscreen(props: {
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const touchStateRef = useRef<
+    | {
+        mode: 'pan'
+        startOffset: { x: number; y: number }
+        startTouch: { x: number; y: number }
+      }
+    | {
+        mode: 'pinch'
+        startCenter: { x: number; y: number }
+        startDistance: number
+        startOffset: { x: number; y: number }
+        startZoom: number
+      }
+    | null
+  >(null)
 
   const ZOOM_STEP = 0.25
   const MIN_ZOOM = 0.25
@@ -347,7 +475,7 @@ function ImageFullscreen(props: {
     if (!event.ctrlKey && !event.metaKey) return
     event.preventDefault()
     const delta = event.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
-    setZoom((prev) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev + delta)))
+    setZoom((prev) => clamp(prev + delta, MIN_ZOOM, MAX_ZOOM))
   }
 
   function handleMouseDown(event: React.MouseEvent): void {
@@ -366,6 +494,80 @@ function ImageFullscreen(props: {
     setIsDragging(false)
   }
 
+  function handleTouchStart(event: React.TouchEvent<HTMLDivElement>): void {
+    if (event.touches.length === 2) {
+      const [firstTouch, secondTouch] = [event.touches[0], event.touches[1]]
+      if (firstTouch === undefined || secondTouch === undefined) {
+        return
+      }
+
+      touchStateRef.current = {
+        mode: 'pinch',
+        startCenter: getTouchCenter(firstTouch, secondTouch),
+        startDistance: getTouchDistance(firstTouch, secondTouch),
+        startOffset: offset,
+        startZoom: zoom,
+      }
+      return
+    }
+
+    const firstTouch = event.touches[0]
+    if (firstTouch !== undefined && zoom > 1) {
+      touchStateRef.current = {
+        mode: 'pan',
+        startOffset: offset,
+        startTouch: { x: firstTouch.clientX, y: firstTouch.clientY },
+      }
+    }
+  }
+
+  function handleTouchMove(event: React.TouchEvent<HTMLDivElement>): void {
+    const touchState = touchStateRef.current
+    if (touchState === null) {
+      return
+    }
+
+    if (touchState.mode === 'pinch' && event.touches.length === 2) {
+      const [firstTouch, secondTouch] = [event.touches[0], event.touches[1]]
+      if (firstTouch === undefined || secondTouch === undefined) {
+        return
+      }
+
+      event.preventDefault()
+      const nextCenter = getTouchCenter(firstTouch, secondTouch)
+      const nextDistance = getTouchDistance(firstTouch, secondTouch)
+      const nextZoom = clamp(
+        touchState.startZoom * (nextDistance / touchState.startDistance),
+        MIN_ZOOM,
+        MAX_ZOOM,
+      )
+
+      setZoom(nextZoom)
+      setOffset({
+        x: touchState.startOffset.x + (nextCenter.x - touchState.startCenter.x),
+        y: touchState.startOffset.y + (nextCenter.y - touchState.startCenter.y),
+      })
+      return
+    }
+
+    if (touchState.mode === 'pan' && event.touches.length === 1) {
+      const firstTouch = event.touches[0]
+      if (firstTouch === undefined) {
+        return
+      }
+
+      event.preventDefault()
+      setOffset({
+        x: touchState.startOffset.x + (firstTouch.clientX - touchState.startTouch.x),
+        y: touchState.startOffset.y + (firstTouch.clientY - touchState.startTouch.y),
+      })
+    }
+  }
+
+  function handleTouchEnd(): void {
+    touchStateRef.current = null
+  }
+
   const zoomPercent = Math.round(zoom * 100)
 
   return (
@@ -382,7 +584,7 @@ function ImageFullscreen(props: {
             aria-label="Zoom out"
             className="inline-flex size-8 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 disabled:opacity-30"
             type="button"
-            onClick={() => setZoom((p) => Math.max(MIN_ZOOM, p - ZOOM_STEP))}
+            onClick={() => setZoom((p) => clamp(p - ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))}
             disabled={zoom <= MIN_ZOOM}
           >
             <Minus className="size-4" />
@@ -394,7 +596,7 @@ function ImageFullscreen(props: {
             aria-label="Zoom in"
             className="inline-flex size-8 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 disabled:opacity-30"
             type="button"
-            onClick={() => setZoom((p) => Math.min(MAX_ZOOM, p + ZOOM_STEP))}
+            onClick={() => setZoom((p) => clamp(p + ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))}
             disabled={zoom >= MAX_ZOOM}
           >
             <Plus className="size-4" />
@@ -428,6 +630,10 @@ function ImageFullscreen(props: {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
         style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
       >
         <img
@@ -439,6 +645,7 @@ function ImageFullscreen(props: {
             transformOrigin: '0 0',
             margin: zoom <= 1 ? 'auto' : undefined,
             alignSelf: zoom <= 1 ? 'center' : undefined,
+            touchAction: zoom > 1 ? 'none' : 'pan-y',
           }}
           draggable={false}
         />
@@ -452,7 +659,6 @@ function ViewerStage(props: {
   isPreviewLoading: boolean
   previewErrorMessage: string | null
   previewUrl: string | null
-  isFullscreen: boolean
   onToggleFullscreen: () => void
   isSpan: boolean
   onToggleSpan: () => void
@@ -542,7 +748,7 @@ function ViewerStage(props: {
                   controls
                   playsInline
                   aria-label={`Video preview for ${props.file.name}`}
-                  className="max-h-[360px] w-full rounded-lg object-cover"
+                   className="max-h-[60dvh] w-full rounded-lg object-cover sm:max-h-[360px]"
                 >
                   <source src={props.previewUrl} type={props.file.mimeType} />
                   <track
@@ -594,7 +800,7 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
     return (
       <>
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(0,0,0,0.4)] px-4 py-6"
+          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(0,0,0,0.4)] px-0 py-0 sm:px-4 sm:py-6"
           role="presentation"
           tabIndex={-1}
           onKeyDown={(event) => {
@@ -613,15 +819,15 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
           <dialog
             open
             aria-labelledby="file-preview-title"
-            className={`static m-0 w-full animate-[scale-in_200ms_ease-out] rounded-xl border border-[var(--outline-variant)] bg-[var(--card-bg)] p-0 shadow-xl ${
-              isImage && isSpan ? 'max-w-[1200px]' : 'max-w-[960px]'
+            className={`static m-0 h-[100dvh] w-full animate-[scale-in_200ms_ease-out] rounded-none border border-[var(--outline-variant)] bg-[var(--card-bg)] p-0 shadow-xl sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:rounded-xl ${
+              isImage && isSpan ? 'sm:max-w-[1200px]' : 'sm:max-w-[960px]'
             }`}
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-[var(--outline-variant)] px-6 py-4">
+            <div className="flex items-center justify-between border-b border-[var(--outline-variant)] px-4 py-3 sm:px-6 sm:py-4">
               <div className="min-w-0 flex-1">
                 <h2
-                  className="truncate text-lg font-semibold text-[var(--on-surface)]"
+                  className="truncate text-base font-semibold text-[var(--on-surface)] sm:text-lg"
                   id="file-preview-title"
                 >
                   {selectedFile.name}
@@ -645,7 +851,7 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
             </div>
 
             <div
-              className={`grid gap-6 p-6 ${
+              className={`grid max-h-[calc(100dvh-4.5rem)] gap-4 overflow-y-auto p-4 sm:max-h-[calc(100dvh-8rem)] sm:gap-6 sm:p-6 ${
                 isImage && isSpan ? 'lg:grid-cols-[1fr]' : 'lg:grid-cols-[1fr_300px]'
               }`}
             >
@@ -654,7 +860,6 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
                 isPreviewLoading={props.isPreviewLoading}
                 previewErrorMessage={props.previewErrorMessage}
                 previewUrl={props.previewUrl}
-                isFullscreen={isFullscreen}
                 onToggleFullscreen={() => setIsFullscreen(true)}
                 isSpan={isSpan}
                 onToggleSpan={() => setIsSpan((prev) => !prev)}
@@ -665,25 +870,25 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
                   <div className="rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4">
                     <h3 className="mb-3 text-sm font-semibold text-[var(--on-surface)]">Details</h3>
                     <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
+                      <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between">
                         <span className="text-[var(--secondary)]">Type</span>
-                        <span className="text-[var(--on-surface)]">{selectedFile.mimeType}</span>
+                        <span className="break-all text-[var(--on-surface)] sm:text-right">{selectedFile.mimeType}</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between">
                         <span className="text-[var(--secondary)]">Size</span>
-                        <span className="text-[var(--on-surface)]">{formatBytes(selectedFile.sizeBytes)}</span>
+                        <span className="text-[var(--on-surface)] sm:text-right">{formatBytes(selectedFile.sizeBytes)}</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between">
                         <span className="text-[var(--secondary)]">Created</span>
-                        <span className="text-[var(--on-surface)]">{formatTimestamp(selectedFile.createdAt)}</span>
+                        <span className="text-[var(--on-surface)] sm:text-right">{formatTimestamp(selectedFile.createdAt)}</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between">
                         <span className="text-[var(--secondary)]">Location</span>
-                        <span className="text-right text-[var(--on-surface)]">{props.currentFolderName ?? '...'}</span>
+                        <span className="break-words text-[var(--on-surface)] sm:text-right">{props.currentFolderName ?? '...'}</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between">
                         <span className="text-[var(--secondary)]">Status</span>
-                        <span className="text-[var(--on-surface)]">{selectedFile.status}</span>
+                        <span className="text-[var(--on-surface)] sm:text-right">{selectedFile.status}</span>
                       </div>
                     </div>
                   </div>
@@ -721,11 +926,18 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
   }
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 w-80 border-l border-[var(--outline-variant)] bg-[var(--card-bg)] p-6 shadow-lg animate-[slide-up_200ms_ease-out]">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--on-surface)]">
-            {props.inspectedFolder?.name}
+    <>
+      <button
+        className="fixed inset-0 z-30 bg-black/20"
+        type="button"
+        aria-label="Close folder properties"
+        onClick={props.onClose}
+      />
+      <aside className="fixed inset-x-0 bottom-0 z-40 max-h-[75dvh] overflow-y-auto rounded-t-2xl border-t border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 shadow-lg animate-[slide-up_200ms_ease-out] sm:inset-y-0 sm:right-0 sm:left-auto sm:max-h-none sm:w-80 sm:rounded-none sm:border-t-0 sm:border-l sm:p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--on-surface)]">
+              {props.inspectedFolder?.name}
           </h2>
           <p className="text-sm text-[var(--secondary)]">Folder properties</p>
         </div>
@@ -739,21 +951,22 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
         </button>
       </div>
 
-      <div className="mt-6 space-y-3 rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]">
-            <Info className="size-5 text-[var(--primary)]" />
+        <div className="mt-6 space-y-3 rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]">
+              <Info className="size-5 text-[var(--primary)]" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-[var(--on-surface)]">{props.inspectedFolder?.name}</p>
+              <p className="text-xs text-[var(--secondary)]">{props.inspectedFolder?.itemCount ?? 0} items</p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-medium text-[var(--on-surface)]">{props.inspectedFolder?.name}</p>
-            <p className="text-xs text-[var(--secondary)]">{props.inspectedFolder?.itemCount ?? 0} items</p>
+          <div className="text-xs text-[var(--secondary)]">
+            Created {props.inspectedFolder?.createdAt ? formatRelativeTime(props.inspectedFolder.createdAt) : 'N/A'}
           </div>
         </div>
-        <div className="text-xs text-[var(--secondary)]">
-          Created {props.inspectedFolder?.createdAt ? formatRelativeTime(props.inspectedFolder.createdAt) : 'N/A'}
-        </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   )
 }
 

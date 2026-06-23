@@ -35,11 +35,11 @@ export function ConfirmationModal(props: ConfirmationModalProps): React.JSX.Elem
       <dialog
         open
         aria-labelledby="dialog-title"
-        className="static m-0 w-full max-w-[480px] animate-[scale-in_200ms_ease-out] rounded-xl border border-[var(--outline-variant)] bg-[var(--card-bg)] p-6 shadow-xl"
+        className="static m-0 w-full max-w-[480px] animate-[scale-in_200ms_ease-out] rounded-none border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 shadow-xl sm:rounded-xl sm:p-6"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
+        <div className="mb-4 flex items-start justify-between gap-3 sm:gap-4">
+          <div className="flex min-w-0 items-center gap-3">
             <div
               className={cn(
                 'flex size-10 items-center justify-center rounded-lg',
@@ -53,16 +53,16 @@ export function ConfirmationModal(props: ConfirmationModalProps): React.JSX.Elem
                 )}
               />
             </div>
-            <div>
-              <h2
-                className="text-base font-semibold text-[var(--on-surface)]"
-                id="dialog-title"
-              >
-                {props.title}
-              </h2>
-              <p className="mt-0.5 text-sm text-[var(--secondary)]">{props.description}</p>
-            </div>
-          </div>
+             <div className="min-w-0">
+               <h2
+                 className="text-base font-semibold text-[var(--on-surface)]"
+                 id="dialog-title"
+               >
+                 {props.title}
+               </h2>
+               <p className="mt-0.5 text-sm text-[var(--secondary)]">{props.description}</p>
+             </div>
+           </div>
           <button
             aria-label="Close"
             className={iconButtonClass}
@@ -79,16 +79,16 @@ export function ConfirmationModal(props: ConfirmationModalProps): React.JSX.Elem
           </div>
         ) : null}
 
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
-            className={ghostButtonClass}
+            className={`${ghostButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={props.onCancel}
           >
             {props.cancelLabel}
           </button>
           <button
-            className={props.tone === 'danger' ? dangerButtonClass : primaryButtonClass}
+            className={`${props.tone === 'danger' ? dangerButtonClass : primaryButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={props.onConfirm}
             disabled={props.isPending}

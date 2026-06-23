@@ -85,8 +85,8 @@ export function TrashPage(): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-1 flex-col p-6 animate-[fade-in_200ms_ease-out]">
-      <div className="mb-5 flex items-center justify-between">
+    <div className="flex flex-1 flex-col p-4 animate-[fade-in_200ms_ease-out] sm:p-6">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]">
             <Trash2 className="size-5" />
@@ -102,7 +102,7 @@ export function TrashPage(): React.JSX.Element {
         <div className="flex items-center gap-2">
           {entries.length > 0 ? (
             <button
-              className={dangerButtonClass}
+              className={`${dangerButtonClass} w-full sm:w-auto`}
               type="button"
               onClick={() => { void handleEmptyTrash() }}
               disabled={emptyTrashMutation.isPending}
@@ -119,7 +119,7 @@ export function TrashPage(): React.JSX.Element {
       </div>
 
       {entries.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] p-12">
+        <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] p-8 sm:p-12">
           <div className="flex flex-col items-center gap-2 text-center">
             <Trash2 className="size-8 text-[var(--outline)]" />
             <p className="text-sm text-[var(--secondary)]">Trash is empty</p>
@@ -127,7 +127,7 @@ export function TrashPage(): React.JSX.Element {
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-[var(--outline-variant)]">
-          <div className="flex items-center gap-3 border-b border-[var(--outline-variant)] px-4 py-2 text-xs font-medium text-[var(--secondary)]">
+          <div className="hidden items-center gap-3 border-b border-[var(--outline-variant)] px-4 py-2 text-xs font-medium text-[var(--secondary)] md:flex">
             <span className="w-5 shrink-0" />
             <span className="min-w-0 flex-1">Name</span>
             <span className="hidden w-20 shrink-0 md:inline">Type</span>
@@ -142,15 +142,22 @@ export function TrashPage(): React.JSX.Element {
             return (
               <div
                 key={`${entry.isFolder ? 'folder' : 'file'}:${entry.id}`}
-                className="flex items-center gap-3 border-b border-[var(--outline-variant)] last:border-b-0 hover:bg-[color-mix(in_srgb,var(--primary)_2%,transparent)]"
+                className="flex flex-col border-b border-[var(--outline-variant)] last:border-b-0 hover:bg-[color-mix(in_srgb,var(--primary)_2%,transparent)] md:flex-row md:items-center md:gap-3"
               >
-                <div className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left">
+                <div className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left sm:px-4 md:py-2.5">
                   <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-container)] text-[var(--secondary)]">
                     <TrashItemIcon entry={entry} />
                   </div>
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--on-surface)]">
-                    {entry.displayName}
-                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-[var(--on-surface)]">
+                      {entry.displayName}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--secondary)] md:hidden">
+                      <span>{entry.isFolder ? 'Folder' : entry.mimeType?.split('/')[0] ?? 'Unknown'}</span>
+                      <span>{entry.isFolder ? '—' : formatBytes(entry.sizeBytes ?? 0)}</span>
+                      <span>{formatRelativeTime(entry.deletedAt)}</span>
+                    </div>
+                  </div>
                   <span className="hidden w-20 shrink-0 text-xs text-[var(--secondary)] md:inline">
                     {entry.isFolder
                       ? 'Folder'
@@ -164,9 +171,9 @@ export function TrashPage(): React.JSX.Element {
                   </span>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1 pr-2">
+                <div className="flex w-full shrink-0 items-center gap-1 px-3 pb-3 sm:px-4 md:w-auto md:justify-end md:pr-2 md:pb-0">
                   <button
-                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--primary)] transition-colors hover:bg-[var(--surface-container-low)]"
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-[var(--primary)] transition-colors hover:bg-[var(--surface-container-low)] md:flex-none md:py-1.5"
                     type="button"
                     disabled={isPending}
                     onClick={() => { void handleRestore(entry) }}
@@ -175,7 +182,7 @@ export function TrashPage(): React.JSX.Element {
                     Restore
                   </button>
                   <button
-                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--error)] transition-colors hover:bg-[var(--error-container)]"
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-[var(--error)] transition-colors hover:bg-[var(--error-container)] md:flex-none md:py-1.5"
                     type="button"
                     disabled={isPending}
                     onClick={() => { void handlePermanentlyDelete(entry) }}

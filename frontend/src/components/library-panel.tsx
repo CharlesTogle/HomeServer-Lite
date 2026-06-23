@@ -133,7 +133,7 @@ function ActionMenu(props: {
         aria-expanded={isOpen}
         aria-haspopup="menu"
         aria-label={`Actions for ${props.itemLabel}`}
-        className="inline-flex size-8 items-center justify-center rounded-lg text-[var(--secondary)] opacity-0 transition-all hover:bg-[var(--surface-container-low)] group-hover/item:opacity-100 data-[open=true]:opacity-100"
+        className="inline-flex size-8 items-center justify-center rounded-lg text-[var(--secondary)] opacity-100 transition-all hover:bg-[var(--surface-container-low)] sm:opacity-0 sm:group-hover/item:opacity-100 data-[open=true]:opacity-100"
         data-open={isOpen}
         type="button"
         onClick={() => props.onToggle(props.menuId)}
@@ -285,8 +285,9 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
   }, [isLoadingMoreFiles, nextOffset, onLoadMoreFiles])
 
   return (
-    <div className="flex flex-1 flex-col p-6 animate-[fade-in_200ms_ease-out]">
-      <div className="mb-5 flex items-center gap-1.5 text-sm text-[var(--secondary)]">
+    <div className="flex flex-1 flex-col p-4 pb-32 animate-[fade-in_200ms_ease-out] sm:p-6 sm:pb-6">
+      <div className="mb-4 overflow-x-auto pb-1 text-sm text-[var(--secondary)] sm:mb-5">
+        <div className="flex min-w-max items-center gap-1.5">
         {props.contents.path.map((folder, index) => (
           <span key={folder.id} className="flex items-center gap-1.5">
             <button
@@ -301,12 +302,13 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
             ) : null}
           </span>
         ))}
+        </div>
       </div>
 
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+      <div className="mb-5 space-y-3">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
           <button
-            className={primaryButtonClass}
+            className={`${primaryButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={props.onOpenUpload}
           >
@@ -315,7 +317,7 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
           </button>
           <button
             aria-label="Create folder"
-            className={secondaryButtonClass}
+            className={`${secondaryButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={props.onOpenCreateFolder}
           >
@@ -324,12 +326,12 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-3">
+        <div className="space-y-3">
           <label className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--outline)]" />
             <input
               aria-label="Search"
-              className="h-8 w-44 rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] pl-8 pr-3 text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] transition-all focus:w-60 focus:border-[var(--primary)] focus:outline-none"
+              className="h-10 w-full rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] pl-8 pr-3 text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] transition-all focus:border-[var(--primary)] focus:outline-none sm:h-8 sm:w-44 sm:focus:w-60"
               placeholder="Search..."
               type="search"
               value={librarySearchTerm}
@@ -337,87 +339,91 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
             />
           </label>
 
-          <label className="sr-only" htmlFor="library-sort-field">Sort by</label>
-          <select
-            id="library-sort-field"
-            className={cn(fieldInputClass, 'h-8 w-[8.5rem] py-0 pr-8')}
-            value={librarySortField}
-            onChange={(event) => setLibrarySortField(event.currentTarget.value as LibrarySortField)}
-          >
-            <option value="name">Sort: Name</option>
-            <option value="date">Sort: Date</option>
-            <option value="size">Sort: Size</option>
-            <option value="type">Sort: Type</option>
-          </select>
+          <div className="overflow-x-auto pb-1">
+            <div className="flex min-w-max items-center gap-2">
+              <label className="sr-only" htmlFor="library-sort-field">Sort by</label>
+              <select
+                id="library-sort-field"
+                className={cn(fieldInputClass, 'h-9 min-w-[8.5rem] py-0 pr-8 sm:h-8')}
+                value={librarySortField}
+                onChange={(event) => setLibrarySortField(event.currentTarget.value as LibrarySortField)}
+              >
+                <option value="name">Sort: Name</option>
+                <option value="date">Sort: Date</option>
+                <option value="size">Sort: Size</option>
+                <option value="type">Sort: Type</option>
+              </select>
 
-          <button
-            aria-label={librarySortDirection === 'asc' ? 'Ascending sort' : 'Descending sort'}
-            className={iconButtonClass}
-            type="button"
-            onClick={() => setLibrarySortDirection(librarySortDirection === 'asc' ? 'desc' : 'asc')}
-          >
-            {librarySortDirection === 'asc' ? <ArrowUpAZ className="size-4" /> : <ArrowDownAZ className="size-4" />}
-          </button>
+              <button
+                aria-label={librarySortDirection === 'asc' ? 'Ascending sort' : 'Descending sort'}
+                className={`${iconButtonClass} shrink-0`}
+                type="button"
+                onClick={() => setLibrarySortDirection(librarySortDirection === 'asc' ? 'desc' : 'asc')}
+              >
+                {librarySortDirection === 'asc' ? <ArrowUpAZ className="size-4" /> : <ArrowDownAZ className="size-4" />}
+              </button>
 
-          <label className="sr-only" htmlFor="library-type-filter">Filter by type</label>
-          <select
-            id="library-type-filter"
-            className={cn(fieldInputClass, 'h-8 w-[8.5rem] py-0 pr-8')}
-            value={libraryTypeFilter}
-            onChange={(event) => setLibraryTypeFilter(event.currentTarget.value as MediaKindFilter)}
-          >
-            {fileTypeOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
+              <label className="sr-only" htmlFor="library-type-filter">Filter by type</label>
+              <select
+                id="library-type-filter"
+                className={cn(fieldInputClass, 'h-9 min-w-[8.5rem] py-0 pr-8 sm:h-8')}
+                value={libraryTypeFilter}
+                onChange={(event) => setLibraryTypeFilter(event.currentTarget.value as MediaKindFilter)}
+              >
+                {fileTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
 
-          <label className="sr-only" htmlFor="library-extension-filter">Filter by extension</label>
-          <select
-            id="library-extension-filter"
-            className={cn(fieldInputClass, 'h-8 w-[8.5rem] py-0 pr-8')}
-            value={extensionOptions.includes(libraryExtensionFilter) ? libraryExtensionFilter : 'all'}
-            onChange={(event) => setLibraryExtensionFilter(event.currentTarget.value)}
-          >
-            <option value="all">All extensions</option>
-            {extensionOptions
-              .filter((extension) => extension !== 'all')
-              .map((extension) => (
-                <option key={extension} value={extension}>.{extension}</option>
-              ))}
-          </select>
+              <label className="sr-only" htmlFor="library-extension-filter">Filter by extension</label>
+              <select
+                id="library-extension-filter"
+                className={cn(fieldInputClass, 'h-9 min-w-[8.5rem] py-0 pr-8 sm:h-8')}
+                value={extensionOptions.includes(libraryExtensionFilter) ? libraryExtensionFilter : 'all'}
+                onChange={(event) => setLibraryExtensionFilter(event.currentTarget.value)}
+              >
+                <option value="all">All extensions</option>
+                {extensionOptions
+                  .filter((extension) => extension !== 'all')
+                  .map((extension) => (
+                    <option key={extension} value={extension}>.{extension}</option>
+                  ))}
+              </select>
 
-          <div className="flex items-center rounded-lg border border-[var(--outline-variant)] p-0.5">
-            <button
-              aria-label="Grid view"
-              className={cn(
-                'inline-flex size-7 items-center justify-center rounded-md transition-colors',
-                viewMode === 'grid'
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--secondary)] hover:bg-[var(--surface-container-low)]',
-              )}
-              type="button"
-              onClick={() => setViewMode('grid')}
-            >
-              <LayoutGrid className="size-3.5" />
-            </button>
-            <button
-              aria-label="List view"
-              className={cn(
-                'inline-flex size-7 items-center justify-center rounded-md transition-colors',
-                viewMode === 'list'
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--secondary)] hover:bg-[var(--surface-container-low)]',
-              )}
-              type="button"
-              onClick={() => setViewMode('list')}
-            >
-              <List className="size-3.5" />
-            </button>
+              <div className="flex shrink-0 items-center rounded-lg border border-[var(--outline-variant)] p-0.5">
+                <button
+                  aria-label="Grid view"
+                  className={cn(
+                    'inline-flex size-8 items-center justify-center rounded-md transition-colors sm:size-7',
+                    viewMode === 'grid'
+                      ? 'bg-[var(--primary)] text-white'
+                      : 'text-[var(--secondary)] hover:bg-[var(--surface-container-low)]',
+                  )}
+                  type="button"
+                  onClick={() => setViewMode('grid')}
+                >
+                  <LayoutGrid className="size-3.5" />
+                </button>
+                <button
+                  aria-label="List view"
+                  className={cn(
+                    'inline-flex size-8 items-center justify-center rounded-md transition-colors sm:size-7',
+                    viewMode === 'list'
+                      ? 'bg-[var(--primary)] text-white'
+                      : 'text-[var(--secondary)] hover:bg-[var(--surface-container-low)]',
+                  )}
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                >
+                  <List className="size-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="mb-4 flex items-center justify-between gap-3 text-xs text-[var(--secondary)]">
+      <div className="mb-4 flex flex-col gap-1 text-xs text-[var(--secondary)] sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <span>
           {props.contents.totalFileCount === 0
             ? 'No files'
@@ -432,7 +438,7 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
 
       {filteredFolders.length > 0 ? (
         viewMode === 'grid' ? (
-          <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {filteredFolders.map((folder) => {
               const isInspected = props.inspectedFolderId === folder.id
               const isBusy = props.busyItemId === folder.id
@@ -467,7 +473,7 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
                     className={`inline-flex size-8 items-center justify-center rounded-lg transition-all hover:bg-[var(--surface-container-low)] ${
                       favoriteIds.has(folder.id)
                         ? 'text-[var(--primary)] opacity-100'
-                        : 'text-[var(--secondary)] opacity-0 group-hover/item:opacity-100'
+                        : 'text-[var(--secondary)] opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100'
                     }`}
                     type="button"
                     disabled={addFavoriteMutation.isPending || removeFavoriteMutation.isPending}
@@ -511,7 +517,7 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
                   )}
                 >
                   <button
-                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left sm:gap-3 sm:px-4 sm:py-2.5"
                     type="button"
                     onClick={() => props.onOpenFolder(folder.id)}
                   >
@@ -519,17 +525,20 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--on-surface)]">
                       {folder.name}
                     </span>
-                    <span className="hidden shrink-0 text-xs text-[var(--secondary)] sm:inline">
-                      Folder &middot; {folder.itemCount} items
-                    </span>
-                  </button>
+                     <span className="hidden shrink-0 text-xs text-[var(--secondary)] md:inline">
+                       Folder &middot; {folder.itemCount} items
+                     </span>
+                     <span className="shrink-0 text-[11px] text-[var(--secondary)] md:hidden">
+                       {folder.itemCount} items
+                     </span>
+                   </button>
 
                   <button
                     aria-label={favoriteIds.has(folder.id) ? 'Remove from favorites' : 'Add to favorites'}
                     className={`inline-flex size-8 items-center justify-center rounded-lg transition-all hover:bg-[var(--surface-container-low)] ${
                       favoriteIds.has(folder.id)
                         ? 'text-[var(--primary)] opacity-100'
-                        : 'text-[var(--secondary)] opacity-0 group-hover/item:opacity-100'
+                        : 'text-[var(--secondary)] opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100'
                     }`}
                     type="button"
                     disabled={addFavoriteMutation.isPending || removeFavoriteMutation.isPending}
@@ -563,7 +572,7 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
 
       {filteredFiles.length > 0 ? (
         viewMode === 'grid' ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {filteredFiles.map((file) => {
               const isSelected = props.selectedFileId === file.id
               const isBusy = props.busyItemId === file.id
@@ -602,9 +611,9 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
                     <button
                       aria-label={favoriteIds.has(file.id) ? 'Remove from favorites' : 'Add to favorites'}
                       className={`inline-flex size-8 items-center justify-center rounded-lg transition-all hover:bg-[var(--surface-container-low)] ${
-                        favoriteIds.has(file.id)
+                      favoriteIds.has(file.id)
                           ? 'text-[var(--primary)] opacity-100'
-                          : 'text-[var(--secondary)] opacity-0 group-hover/item:opacity-100'
+                          : 'text-[var(--secondary)] opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100'
                       }`}
                       type="button"
                       disabled={addFavoriteMutation.isPending || removeFavoriteMutation.isPending}
@@ -634,8 +643,8 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
             })}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-[var(--outline-variant)]">
-            <div className="flex items-center gap-3 border-b border-[var(--outline-variant)] px-4 py-2 text-xs font-medium text-[var(--secondary)]">
+           <div className="overflow-hidden rounded-lg border border-[var(--outline-variant)]">
+             <div className="hidden items-center gap-3 border-b border-[var(--outline-variant)] px-4 py-2 text-xs font-medium text-[var(--secondary)] md:flex">
               <span className="w-8 shrink-0" />
               <span className="min-w-0 flex-1">Name</span>
               <span className="hidden w-20 shrink-0 md:inline">Type</span>
@@ -657,20 +666,25 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
                   )}
                 >
                   <button
-                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left"
+                     className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left sm:gap-3 sm:px-4 sm:py-2.5"
                     type="button"
                     onClick={() => props.onSelectFile(file.id)}
                   >
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-container)] text-[var(--secondary)]">
-                      <FileIcon file={file} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-[var(--on-surface)]">
-                        {file.name}
-                      </div>
-                      {normalizedQuery.length > 0 && file.folderId !== props.contents.currentFolder.id ? (
-                        <div className="truncate text-xs text-[var(--secondary)]">
-                          In {childFolderNames.get(file.folderId) ?? 'subfolder'}
+                     <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-container)] text-[var(--secondary)] sm:size-8">
+                       <FileIcon file={file} />
+                     </div>
+                     <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-[var(--on-surface)]">
+                          {file.name}
+                        </div>
+                       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--secondary)] md:hidden">
+                         <span>{formatMediaKind(file.mediaKind)}</span>
+                         <span>{formatBytes(file.sizeBytes)}</span>
+                         <span>{formatRelativeTime(file.createdAt)}</span>
+                       </div>
+                       {normalizedQuery.length > 0 && file.folderId !== props.contents.currentFolder.id ? (
+                         <div className="truncate text-xs text-[var(--secondary)]">
+                           In {childFolderNames.get(file.folderId) ?? 'subfolder'}
                         </div>
                       ) : null}
                     </div>
@@ -687,11 +701,11 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
 
                   <button
                     aria-label={favoriteIds.has(file.id) ? 'Remove from favorites' : 'Add to favorites'}
-                    className={`inline-flex size-8 items-center justify-center rounded-lg transition-all hover:bg-[var(--surface-container-low)] ${
-                      favoriteIds.has(file.id)
-                        ? 'text-[var(--primary)] opacity-100'
-                        : 'text-[var(--secondary)] opacity-0 group-hover/item:opacity-100'
-                    }`}
+                     className={`inline-flex size-8 items-center justify-center rounded-lg transition-all hover:bg-[var(--surface-container-low)] ${
+                       favoriteIds.has(file.id)
+                         ? 'text-[var(--primary)] opacity-100'
+                         : 'text-[var(--secondary)] opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100'
+                     }`}
                     type="button"
                     disabled={addFavoriteMutation.isPending || removeFavoriteMutation.isPending}
                     onClick={() => handleToggleFavorite(file.id, 'file')}
@@ -721,7 +735,7 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
           </div>
         )
       ) : (
-        <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] p-12">
+         <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] p-8 sm:p-12">
           <div className="flex flex-col items-center gap-2 text-center">
             <Upload className="size-8 text-[var(--outline)]" />
             <p className="text-sm text-[var(--secondary)]">
@@ -745,6 +759,27 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
           ) : null}
         </div>
       ) : null}
+
+      <div className="fixed inset-x-0 bottom-[4.5rem] z-20 px-4 sm:hidden">
+        <div className="mx-auto grid max-w-md grid-cols-2 gap-2 rounded-2xl border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_94%,white)] p-2 shadow-lg backdrop-blur">
+          <button
+            className={`${primaryButtonClass} h-11 w-full`}
+            type="button"
+            onClick={props.onOpenUpload}
+          >
+            <Upload className="size-4" />
+            Upload
+          </button>
+          <button
+            className={`${secondaryButtonClass} h-11 w-full`}
+            type="button"
+            onClick={props.onOpenCreateFolder}
+          >
+            <FolderPlus className="size-4" />
+            Folder
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

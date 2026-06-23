@@ -141,16 +141,16 @@ function ChangePasswordSection(): React.JSX.Element {
           {changePasswordMutation.isSuccess ? (
             <p className="text-xs text-green-700">Password updated.</p>
           ) : null}
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
-              className={primaryButtonClass}
+              className={`${primaryButtonClass} w-full sm:w-auto`}
               type="submit"
               disabled={changePasswordMutation.isPending}
             >
               {changePasswordMutation.isPending ? 'Saving...' : 'Save'}
             </button>
             <button
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] px-4 text-sm font-medium text-[var(--on-surface)] transition-colors hover:bg-[var(--surface-container-low)]"
+              className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] px-4 text-sm font-medium text-[var(--on-surface)] transition-colors hover:bg-[var(--surface-container-low)] sm:w-auto"
               type="button"
               onClick={handleCancel}
             >
@@ -176,20 +176,20 @@ export function AccountPage(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl animate-[fade-in_200ms_ease-out] p-6">
+    <div className="mx-auto w-full max-w-2xl animate-[fade-in_200ms_ease-out] p-4 sm:p-6">
       <button
-        className="mb-6 text-sm text-[var(--primary)] transition-colors hover:text-[var(--primary-hover)]"
+        className="mb-5 text-sm text-[var(--primary)] transition-colors hover:text-[var(--primary-hover)] sm:mb-6"
         type="button"
         onClick={() => setCurrentPage('files')}
       >
         &larr; Back to files
       </button>
 
-      <div className="mb-8 flex items-center gap-5">
-        <UserAvatar name={displayName} size={64} />
-        <div>
+      <div className="mb-6 flex flex-col items-start gap-4 sm:mb-8 sm:flex-row sm:items-center sm:gap-5">
+        <UserAvatar name={displayName} size={56} />
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold text-[var(--on-surface)]">{displayName}</h1>
-          <p className="mt-1 text-sm text-[var(--secondary)]">{displayEmail}</p>
+          <p className="mt-1 break-all text-sm text-[var(--secondary)]">{displayEmail}</p>
         </div>
       </div>
 
@@ -199,7 +199,7 @@ export function AccountPage(): React.JSX.Element {
 
         <div className="rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4">
           <button
-            className={dangerButtonClass}
+            className={`${dangerButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={() => { void handleSignOut() }}
             disabled={logoutMutation.isPending}

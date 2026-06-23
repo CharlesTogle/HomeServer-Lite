@@ -77,7 +77,7 @@ export function UploadPanel(props: UploadPanelProps): React.JSX.Element {
       <dialog
         open
         aria-labelledby="upload-dialog-title"
-        className="static m-0 w-full max-w-[640px] animate-[scale-in_200ms_ease-out] rounded-xl border border-[var(--outline-variant)] bg-[var(--card-bg)] p-6 shadow-xl"
+        className="static m-0 flex max-h-[100dvh] w-full max-w-[640px] flex-col overflow-hidden animate-[scale-in_200ms_ease-out] rounded-none border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 shadow-xl sm:rounded-xl sm:p-6"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between gap-4">
@@ -100,7 +100,7 @@ export function UploadPanel(props: UploadPanelProps): React.JSX.Element {
         </div>
 
         <div
-          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[var(--outline-variant)] bg-[var(--surface-container-low)] px-6 py-10 text-center transition-colors hover:border-[var(--primary)]"
+          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[var(--outline-variant)] bg-[var(--surface-container-low)] px-4 py-8 text-center transition-colors hover:border-[var(--primary)] sm:px-6 sm:py-10"
           onClick={() => fileInputRef.current?.click()}
         >
           <Upload className="size-8 text-[var(--outline)]" />
@@ -155,16 +155,16 @@ export function UploadPanel(props: UploadPanelProps): React.JSX.Element {
           </div>
         ) : null}
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
-            className={secondaryButtonClass}
+            className={`${secondaryButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={props.onClose}
           >
             Cancel
           </button>
           <button
-            className={confirmUpload ? dangerButtonClass : primaryButtonClass}
+            className={`${confirmUpload ? dangerButtonClass : primaryButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={() => { void handleSubmit() }}
             disabled={props.isPending || selectedFiles.length === 0}

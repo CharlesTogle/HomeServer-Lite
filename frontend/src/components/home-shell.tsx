@@ -50,6 +50,11 @@ interface InspectorTarget {
   mode: 'preview' | 'properties'
 }
 
+interface HomeShellProps {
+  isMobileSidebarOpen: boolean
+  onCloseMobileSidebar: () => void
+}
+
 function collectDescendantFolderIds(tree: FolderTreeNode, folderId: string): Set<string> {
   if (tree.folder.id === folderId) {
     const descendantIds = new Set<string>()
@@ -223,7 +228,7 @@ function getFolderFromContents(
   return siblingFolders.find((folder) => folder.id === folderId) ?? null
 }
 
-export function HomeShell(): React.JSX.Element {
+export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShellProps): React.JSX.Element {
   const {
     currentPage,
     libraryExtensionFilter,
@@ -385,6 +390,7 @@ export function HomeShell(): React.JSX.Element {
     resetActionErrors()
     setDeleteTarget(null)
     setMoveTarget(null)
+    onCloseMobileSidebar()
 
     setCurrentPage('files')
     setSelectedFolderId(folderId)
@@ -626,101 +632,131 @@ export function HomeShell(): React.JSX.Element {
     setIsUploadModalOpen(false)
   }
 
+  const sidebarContent = (
+    <>
+      <div className="flex-1 overflow-y-auto px-3 py-3">
+        <section className="rounded-2xl border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_80%,transparent)] px-2 py-2">
+          <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--outline)]">
+            My Drive
+          </div>
+
+          {folderTreeQuery.isPending ? (
+            <div className="flex items-center justify-center py-8">
+              <LoaderCircle className="size-4 animate-spin text-[var(--primary)]" />
+            </div>
+          ) : null}
+
+          {folderTreeQuery.error !== null ? (
+            <div className="rounded-lg border border-[var(--error-container)] bg-[var(--error-container)] px-3 py-2 text-xs text-[var(--on-error-container)]">
+              {folderTreeQuery.error.message}
+            </div>
+          ) : null}
+
+          {myDriveTree !== undefined && selectedFolderId !== null ? (
+            <FolderTree
+              tree={myDriveTree}
+              rootLabel="My Drive"
+              selectedFolderId={selectedFolderId}
+              onSelectFolder={handleOpenFolder}
+            />
+          ) : null}
+        </section>
+
+        <section className="mt-5">
+          <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--outline)]">
+            Shared
+          </div>
+
+          <div className="space-y-0.5">
+            {sharedFolderNodes.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-[var(--secondary)]">No shared folders</div>
+            ) : (
+              sharedFolderNodes.map((node) => (
+                <div
+                  key={node.folder.id}
+                  className="rounded-2xl border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_72%,transparent)] px-2 py-2"
+                >
+                  <FolderTree
+                    tree={node}
+                    selectedFolderId={selectedFolderId ?? ''}
+                    onSelectFolder={handleOpenFolder}
+                  />
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="mt-5 border-t border-[var(--outline-variant)] pt-4">
+          <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--outline)]">
+            Library
+          </div>
+
+          <div className="space-y-0.5">
+            <button
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-[var(--surface-container-low)] ${
+                currentPage === 'favorites'
+                  ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]'
+                  : 'text-[var(--on-surface)]'
+              }`}
+              type="button"
+              onClick={() => {
+                setCurrentPage('favorites')
+                onCloseMobileSidebar()
+              }}
+            >
+              <Bookmark className="size-4 shrink-0 text-[var(--secondary)]" />
+              <span>Favorites</span>
+            </button>
+
+            <button
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-[var(--surface-container-low)] ${
+                currentPage === 'trash'
+                  ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]'
+                  : 'text-[var(--on-surface)]'
+              }`}
+              type="button"
+              onClick={() => {
+                setCurrentPage('trash')
+                onCloseMobileSidebar()
+              }}
+            >
+              <Trash2 className="size-4 shrink-0 text-[var(--secondary)]" />
+              <span>Trash</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div className="border-t border-[var(--outline-variant)] p-3">
+        <StorageBar />
+      </div>
+    </>
+  )
+
   return (
     <>
       <div className="flex min-h-0 flex-1">
+        {isMobileSidebarOpen ? (
+          <button
+            className="fixed inset-0 z-30 bg-black/28 backdrop-blur-[1px] lg:hidden"
+            type="button"
+            aria-label="Close sidebar"
+            onClick={onCloseMobileSidebar}
+          />
+        ) : null}
+
+        <aside
+          className={`fixed inset-y-14 left-0 z-40 flex w-60 flex-col border-r border-[var(--outline-variant)] bg-[var(--surface)] transition-transform duration-300 ease-out lg:hidden ${
+            isMobileSidebarOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full'
+          }`}
+          aria-hidden={!isMobileSidebarOpen}
+        >
+          {sidebarContent}
+        </aside>
+
         <aside className="hidden w-60 shrink-0 border-r border-[var(--outline-variant)] bg-[var(--surface)] lg:flex lg:flex-col">
-          <div className="flex-1 overflow-y-auto px-3 py-3">
-            <section className="rounded-2xl border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_80%,transparent)] px-2 py-2">
-              <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--outline)]">
-                My Drive
-              </div>
-
-              {folderTreeQuery.isPending ? (
-                <div className="flex items-center justify-center py-8">
-                  <LoaderCircle className="size-4 animate-spin text-[var(--primary)]" />
-                </div>
-              ) : null}
-
-              {folderTreeQuery.error !== null ? (
-                <div className="rounded-lg border border-[var(--error-container)] bg-[var(--error-container)] px-3 py-2 text-xs text-[var(--on-error-container)]">
-                  {folderTreeQuery.error.message}
-                </div>
-              ) : null}
-
-              {myDriveTree !== undefined && selectedFolderId !== null ? (
-                <FolderTree
-                  tree={myDriveTree}
-                  rootLabel="My Drive"
-                  selectedFolderId={selectedFolderId}
-                  onSelectFolder={handleOpenFolder}
-                />
-              ) : null}
-            </section>
-
-            <section className="mt-5">
-              <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--outline)]">
-                Shared
-              </div>
-
-              <div className="space-y-0.5">
-                {sharedFolderNodes.length === 0 ? (
-                  <div className="px-3 py-2 text-sm text-[var(--secondary)]">No shared folders</div>
-                ) : (
-                  sharedFolderNodes.map((node) => (
-                    <div
-                      key={node.folder.id}
-                      className="rounded-2xl border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_72%,transparent)] px-2 py-2"
-                    >
-                      <FolderTree
-                        tree={node}
-                        selectedFolderId={selectedFolderId ?? ''}
-                        onSelectFolder={handleOpenFolder}
-                      />
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-
-            <section className="mt-5 border-t border-[var(--outline-variant)] pt-4">
-              <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--outline)]">
-                Library
-              </div>
-
-              <div className="space-y-0.5">
-                <button
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-[var(--surface-container-low)] ${
-                    currentPage === 'favorites'
-                      ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]'
-                      : 'text-[var(--on-surface)]'
-                  }`}
-                  type="button"
-                  onClick={() => setCurrentPage('favorites')}
-                >
-                  <Bookmark className="size-4 shrink-0 text-[var(--secondary)]" />
-                  <span>Favorites</span>
-                </button>
-
-                <button
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-[var(--surface-container-low)] ${
-                    currentPage === 'trash'
-                      ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]'
-                      : 'text-[var(--on-surface)]'
-                  }`}
-                  type="button"
-                  onClick={() => setCurrentPage('trash')}
-                >
-                  <Trash2 className="size-4 shrink-0 text-[var(--secondary)]" />
-                  <span>Trash</span>
-                </button>
-              </div>
-            </section>
-          </div>
-
-          <div className="border-t border-[var(--outline-variant)] p-3">
-            <StorageBar />
-          </div>
+          {sidebarContent}
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">

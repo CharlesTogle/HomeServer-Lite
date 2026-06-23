@@ -46,7 +46,7 @@ export function MoveItemModal(props: MoveItemModalProps): React.JSX.Element | nu
       <dialog
         open
         aria-labelledby="move-dialog-title"
-        className="static m-0 w-full max-w-[480px] animate-[scale-in_200ms_ease-out] rounded-xl border border-[var(--outline-variant)] bg-[var(--card-bg)] p-6 shadow-xl"
+        className="static m-0 w-full max-w-[480px] animate-[scale-in_200ms_ease-out] rounded-none border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 shadow-xl sm:rounded-xl sm:p-6"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
@@ -104,16 +104,16 @@ export function MoveItemModal(props: MoveItemModalProps): React.JSX.Element | nu
           </div>
         ) : null}
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
-            className={ghostButtonClass}
+            className={`${ghostButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={props.onCancel}
           >
             Cancel
           </button>
           <button
-            className={primaryButtonClass}
+            className={`${primaryButtonClass} w-full sm:w-auto`}
             type="button"
             onClick={props.onConfirm}
             disabled={props.isPending || !hasValidDestination}

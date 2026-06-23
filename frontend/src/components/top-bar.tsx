@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut, Moon, Sun, User } from 'lucide-react'
+import { ChevronDown, LogOut, Menu, Moon, Sun, User } from 'lucide-react'
 import { useState } from 'react'
 import { useLogoutMutation } from '../hooks/use-auth.ts'
 import { useSessionStore } from '../stores/session-store.ts'
@@ -23,7 +23,13 @@ function UserAvatar(props: { name: string; size?: number }): React.JSX.Element {
   )
 }
 
-export function TopBar(): React.JSX.Element {
+interface TopBarProps {
+  showSidebarToggle?: boolean
+  onToggleSidebar?: () => void
+  onNavigate?: () => void
+}
+
+export function TopBar({ showSidebarToggle = false, onToggleSidebar, onNavigate }: TopBarProps): React.JSX.Element {
   const sessionUser = useSessionStore((state) => state.sessionUser)
   const setCurrentPage = useWorkspaceStore((state) => state.setCurrentPage)
   const currentPage = useWorkspaceStore((state) => state.currentPage)
@@ -42,6 +48,16 @@ export function TopBar(): React.JSX.Element {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--outline-variant)] bg-[var(--card-bg)] px-4 lg:px-6">
       <div className="flex items-center gap-3">
+        {showSidebarToggle ? (
+          <button
+            className={`${iconButtonClass} lg:hidden`}
+            type="button"
+            onClick={onToggleSidebar}
+            aria-label="Open sidebar"
+          >
+            <Menu className="size-4" />
+          </button>
+        ) : null}
         <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--primary)] text-sm font-bold text-white">
           H
         </div>
@@ -85,6 +101,7 @@ export function TopBar(): React.JSX.Element {
                   }`}
                   type="button"
                   onClick={() => {
+                    onNavigate?.()
                     setCurrentPage('account')
                     setIsDropdownOpen(false)
                   }}

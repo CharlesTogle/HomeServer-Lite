@@ -41,8 +41,8 @@ export function FavoritesPage(): React.JSX.Element {
   const items = favoritesQuery.data ?? []
 
   return (
-    <div className="flex flex-1 flex-col p-6 animate-[fade-in_200ms_ease-out]">
-      <div className="mb-5 flex items-center gap-2">
+    <div className="flex flex-1 flex-col p-4 animate-[fade-in_200ms_ease-out] sm:p-6">
+      <div className="mb-5 flex flex-wrap items-center gap-2">
         <Bookmark className="size-5 text-[var(--primary)]" />
         <h1 className="text-lg font-semibold text-[var(--on-surface)]">Favorites</h1>
         <span className="ml-1 text-sm text-[var(--secondary)]">
@@ -81,7 +81,7 @@ export function FavoritesPage(): React.JSX.Element {
               </div>
               <button
                 aria-label={`Remove ${item.displayName} from favorites`}
-                className="mr-2 inline-flex size-8 items-center justify-center rounded-lg text-[var(--secondary)] opacity-0 transition-all hover:bg-[var(--surface-container-low)] group-hover/item:opacity-100"
+                className="mr-2 inline-flex size-8 items-center justify-center rounded-lg text-[var(--secondary)] opacity-100 transition-all hover:bg-[var(--surface-container-low)] sm:opacity-0 sm:group-hover/item:opacity-100"
                 type="button"
                 disabled={removeFavoriteMutation.isPending}
                 onClick={() => removeFavoriteMutation.mutate(item.itemId)}
@@ -92,7 +92,7 @@ export function FavoritesPage(): React.JSX.Element {
           ))}
         </div>
       ) : (
-        <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] p-12">
+         <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] p-8 sm:p-12">
           <div className="flex flex-col items-center gap-2 text-center">
             <Bookmark className="size-8 text-[var(--outline)]" />
             <p className="text-sm text-[var(--secondary)]">
