@@ -1,6 +1,7 @@
 export const REFRESH_COOKIE_NAME = 'homeserver_refresh_token';
 
 interface CookieOptions {
+  expiresAt?: Date;
   httpOnly?: boolean;
   maxAgeSeconds?: number;
   path?: string;
@@ -40,6 +41,7 @@ export function parseCookieHeader(
 
 export function serializeClearedRefreshCookie(secure: boolean): string {
   return serializeCookie(REFRESH_COOKIE_NAME, '', {
+    expiresAt: new Date(0),
     httpOnly: true,
     maxAgeSeconds: 0,
     path: '/api/auth',
@@ -54,6 +56,7 @@ export function serializeRefreshCookie(
   secure: boolean,
 ): string {
   return serializeCookie(REFRESH_COOKIE_NAME, token, {
+    expiresAt: new Date(Date.now() + maxAgeSeconds * 1000),
     httpOnly: true,
     maxAgeSeconds,
     path: '/api/auth',
@@ -71,6 +74,10 @@ function serializeCookie(
 
   if (options.maxAgeSeconds !== undefined) {
     segments.push(`Max-Age=${options.maxAgeSeconds}`);
+  }
+
+  if (options.expiresAt !== undefined) {
+    segments.push(`Expires=${options.expiresAt.toUTCString()}`);
   }
 
   segments.push(`Path=${options.path ?? '/'}`);

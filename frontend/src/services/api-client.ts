@@ -36,7 +36,7 @@ export function resolveApiUrl(path: string): string {
     return path
   }
 
-  return new URL(path.slice(1), document.baseURI).toString()
+  return new URL(path, window.location.origin).toString()
 }
 
 function deriveDisplayName(email: string): string {
