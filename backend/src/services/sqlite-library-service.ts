@@ -484,7 +484,23 @@ export class SqliteLibraryService implements LibraryServiceContract {
   public async getFolder(userId: string, folderId: string): Promise<FolderRecord> {
     const row = queryOptionalRow<FolderRow>(
       this.db,
-      `SELECT f.id, f.user_id, f.parent_folder_id, f.display_name, f.is_root, f.storage_rel_path, f.created_at, f.updated_at
+      `SELECT f.id, f.user_id, f.parent_folder_id, f.display_name, f.is_root, f.storage_rel_path, f.created_at, f.updated_at, f.deleted_at
+       FROM folders f
+       LEFT JOIN shared_folder_members sfm ON sfm.folder_id = f.id AND sfm.user_id = ?
+       WHERE f.id = ? AND (f.user_id = ? OR sfm.user_id IS NOT NULL)`,
+      [userId, folderId, userId],
+    );
+    if (row === null) {
+      throw new NotFoundError('Folder not found.');
+    }
+
+    return toFolderRecord(row);
+  }
+
+  private getFolderIncludingTrashed(userId: string, folderId: string): FolderRecord {
+    const row = queryOptionalRow<FolderRow>(
+      this.db,
+      `SELECT f.id, f.user_id, f.parent_folder_id, f.display_name, f.is_root, f.storage_rel_path, f.created_at, f.updated_at, f.deleted_at
        FROM folders f
        LEFT JOIN shared_folder_members sfm ON sfm.folder_id = f.id AND sfm.user_id = ?
        WHERE f.id = ? AND (f.user_id = ? OR sfm.user_id IS NOT NULL)`,
@@ -879,6 +895,21 @@ export class SqliteLibraryService implements LibraryServiceContract {
       `SELECT f.* FROM files f
        LEFT JOIN shared_folder_members sfm ON sfm.folder_id = f.folder_id AND sfm.user_id = ?
        WHERE f.id = ? AND f.deleted_at IS NULL AND (f.user_id = ? OR sfm.user_id IS NOT NULL)`,
+      [userId, fileId, userId],
+    );
+    if (row === null) {
+      throw new NotFoundError('File not found.');
+    }
+
+    return toFileRecord(row);
+  }
+
+  private getFileIncludingTrashed(userId: string, fileId: string): FileRecord {
+    const row = queryOptionalRow<FileRow>(
+      this.db,
+      `SELECT f.* FROM files f
+       LEFT JOIN shared_folder_members sfm ON sfm.folder_id = f.folder_id AND sfm.user_id = ?
+       WHERE f.id = ? AND (f.user_id = ? OR sfm.user_id IS NOT NULL)`,
       [userId, fileId, userId],
     );
     if (row === null) {
@@ -1734,7 +1765,7 @@ export class SqliteLibraryService implements LibraryServiceContract {
 
   public async restoreTrashEntry(userId: string, itemId: string, isFolder: boolean): Promise<void> {
     if (isFolder) {
-      const folder = await this.getFolder(userId, itemId);
+      const folder = this.getFolderIncludingTrashed(userId, itemId);
       if (folder.deletedAt === null) {
         throw new BadRequestError('Item is not in trash.');
       }
@@ -1778,7 +1809,7 @@ export class SqliteLibraryService implements LibraryServiceContract {
         }
       });
     } else {
-      const file = await this.getFile(userId, itemId);
+      const file = this.getFileIncludingTrashed(userId, itemId);
       if (file.deletedAt === null) {
         throw new BadRequestError('Item is not in trash.');
       }
@@ -1797,7 +1828,7 @@ export class SqliteLibraryService implements LibraryServiceContract {
 
   public async permanentlyDeleteEntry(userId: string, itemId: string, isFolder: boolean): Promise<void> {
     if (isFolder) {
-      const folder = await this.getFolder(userId, itemId);
+      const folder = this.getFolderIncludingTrashed(userId, itemId);
       if (folder.deletedAt === null) {
         throw new BadRequestError('Item is not in trash.');
       }
@@ -1829,7 +1860,7 @@ export class SqliteLibraryService implements LibraryServiceContract {
 
       await this.hardDeleteFoldersAndFiles(userId, allFolders, filesInFolders, descendantFolderIds, isShared);
     } else {
-      const file = await this.getFile(userId, itemId);
+      const file = this.getFileIncludingTrashed(userId, itemId);
       if (file.deletedAt === null) {
         throw new BadRequestError('Item is not in trash.');
       }
