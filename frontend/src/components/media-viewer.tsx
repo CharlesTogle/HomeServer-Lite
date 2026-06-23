@@ -80,14 +80,6 @@ function DocumentViewer(props: { file: FileRecord }): React.JSX.Element {
 
         if (cancelled) return
 
-        if (!response.ok) {
-          if (response.status === 400) {
-            setContent(null)
-            return
-          }
-          throw new Error(`Failed to load preview (${response.status})`)
-        }
-
         const text = await response.text()
 
         if (!cancelled) {

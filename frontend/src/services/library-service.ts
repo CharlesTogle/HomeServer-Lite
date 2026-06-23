@@ -210,7 +210,7 @@ function buildFolderTree(folders: BackendFolderTreeFolderResponse[]): FolderTree
   }
 
   if (rootNode === null) {
-    throw new Error('The backend did not return a root folder.')
+    throw new Error('Library could not be loaded, please refresh and try again.')
   }
 
   rootNode.children.push(...orphanTopLevelNodes)
@@ -399,7 +399,7 @@ export async function getFolderContents(
   } else {
     path = findFolderPath(tree, response.folder.id)
     if (currentFolderNode === null || path.length === 0) {
-      throw new Error('The selected folder is missing from the current tree snapshot.')
+      throw new Error('Folder could not be opened, please refresh and try again.')
     }
   }
 
@@ -436,7 +436,7 @@ export interface UploadResult {
 
 export async function uploadFiles(input: UploadInput): Promise<UploadResult> {
   if (input.files.length === 0) {
-    throw new Error('Choose at least one file before uploading.')
+    throw new Error('Files could not be uploaded, please choose at least one file and try again.')
   }
 
   const uploadBatch = await apiJson<BackendUploadBatchResponse>('/api/upload-batches', {

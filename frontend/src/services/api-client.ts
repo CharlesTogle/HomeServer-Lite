@@ -97,22 +97,31 @@ function buildRequestInit(
   }
 }
 
-async function getErrorMessage(response: Response): Promise<string> {
-  const contentType = response.headers.get('content-type') ?? ''
+function getErrorMessage(response: Response): string {
+  switch (response.status) {
+    case 400:
+      return 'Request could not be completed, please check your input and try again.'
+    case 401:
+      return 'Session could not be verified, please sign in again.'
+    case 403:
+      return 'Action could not be completed, please use an account with permission and try again.'
+    case 404:
+      return 'Requested item could not be found, please refresh and try again.'
+    case 409:
+      return 'Action could not be completed, please refresh and try again.'
+    case 413:
+      return 'File could not be uploaded, please choose a smaller file and try again.'
+    case 415:
+      return 'File could not be uploaded, please choose a supported file type and try again.'
+    case 429:
+      return 'Request could not be completed, please wait a moment and try again.'
+    default:
+      if (response.status >= 500) {
+        return 'Server request could not be completed, please try again in a moment.'
+      }
 
-  if (contentType.includes('application/json')) {
-    const data = (await response.json().catch(() => null)) as
-      | { message?: string }
-      | null
-
-    if (data?.message !== undefined && data.message.trim() !== '') {
-      return data.message
-    }
+      return 'Request could not be completed, please try again.'
   }
-
-  const fallbackText = await response.text().catch(() => '')
-
-  return fallbackText.trim() || `Request failed with status ${response.status}.`
 }
 
 function setSessionFromAuthResponse(response: BackendAuthResponse): void {
@@ -190,7 +199,7 @@ export async function apiJson<T>(
   const response = await apiRequest(input, options)
 
   if (!response.ok) {
-    throw new ApiError(response.status, await getErrorMessage(response))
+    throw new ApiError(response.status, getErrorMessage(response))
   }
 
   return (await response.json()) as T
@@ -203,7 +212,7 @@ export async function apiBlob(
   const response = await apiRequest(input, options)
 
   if (!response.ok) {
-    throw new ApiError(response.status, await getErrorMessage(response))
+    throw new ApiError(response.status, getErrorMessage(response))
   }
 
   return await response.blob()
@@ -216,7 +225,7 @@ export async function apiResponse(
   const response = await apiRequest(input, options)
 
   if (!response.ok) {
-    throw new ApiError(response.status, await getErrorMessage(response))
+    throw new ApiError(response.status, getErrorMessage(response))
   }
 
   return response

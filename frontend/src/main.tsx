@@ -8,7 +8,7 @@ import { queryClient } from './lib/query-client.ts'
 const rootElement = document.getElementById('root')
 
 if (rootElement === null) {
-  throw new Error('Root element was not found.')
+  throw new Error('Application could not be started, please refresh and try again.')
 }
 
 createRoot(rootElement).render(

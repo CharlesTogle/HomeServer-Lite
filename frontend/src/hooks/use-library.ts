@@ -79,7 +79,7 @@ export function useFolderContentsQuery(
     getNextPageParam: (lastPage: FolderContents) => lastPage.nextOffset ?? undefined,
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       if (folderId === null || tree === undefined) {
-        throw new Error('Folder contents query requires both a folder id and tree snapshot.')
+        throw new Error('Folder contents could not be loaded, please refresh and try again.')
       }
 
       return await getFolderContents(folderId, tree, query, pageParam, sharedFolderNodes)
@@ -229,7 +229,7 @@ export function useFilePreview(file: FileRecord | null): {
     queryKey: ['library', 'file-preview', file?.id ?? 'none', file?.updatedAt ?? 'none'],
     queryFn: async () => {
       if (file === null) {
-        throw new Error('A file is required before fetching preview bytes.')
+        throw new Error('Preview could not be loaded, please choose a file and try again.')
       }
 
       return await getFilePreviewBlob(file)

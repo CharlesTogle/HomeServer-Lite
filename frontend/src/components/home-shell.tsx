@@ -430,7 +430,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
     resetActionErrors()
 
     if (folderTreeQuery.data === undefined) {
-      setActionErrorMessage('Folder destinations are still loading.')
+      setActionErrorMessage('Folder destinations could not be loaded, please wait a moment and try again.')
       return
     }
 
@@ -457,7 +457,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
     resetActionErrors()
 
     if (folderTreeQuery.data === undefined) {
-      setActionErrorMessage('Folder destinations are still loading.')
+      setActionErrorMessage('Folder destinations could not be loaded, please wait a moment and try again.')
       return
     }
 
@@ -513,7 +513,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
       triggerBlobDownload(preparedDownload.blob, preparedDownload.fileName)
     } catch (error) {
       setActionErrorMessage(
-        error instanceof Error ? error.message : 'The download could not be prepared.',
+        error instanceof Error ? error.message : 'Download could not be prepared, please try again.',
       )
     } finally {
       setDownloadingItemId(null)
@@ -526,7 +526,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
 
     try {
       if (folderTreeQuery.data === undefined) {
-        throw new Error('Folder tree is still loading.')
+        throw new Error('Folder download could not be prepared, please wait a moment and try again.')
       }
 
       const preparedDownload = await prepareFolderDownload(folder, folderTreeQuery.data)
@@ -534,7 +534,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
       triggerBlobDownload(preparedDownload.blob, preparedDownload.fileName)
     } catch (error) {
       setActionErrorMessage(
-        error instanceof Error ? error.message : 'The folder snapshot could not be prepared.',
+        error instanceof Error ? error.message : 'Folder download could not be prepared, please try again.',
       )
     } finally {
       setDownloadingItemId(null)
@@ -596,7 +596,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
     resetActionErrors()
 
     if (selectedFolderId === null) {
-      setActionErrorMessage('Select a folder before creating a nested folder.')
+      setActionErrorMessage('Folder could not be created, please choose a destination folder and try again.')
       return
     }
 
@@ -619,7 +619,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
     resetActionErrors()
 
     if (selectedFolderId === null) {
-      setActionErrorMessage('Select a folder before uploading files.')
+      setActionErrorMessage('Files could not be uploaded, please choose a destination folder and try again.')
       return
     }
 
