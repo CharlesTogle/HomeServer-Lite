@@ -3,6 +3,7 @@ import { type FastifyInstance } from 'fastify';
 
 import { buildApp } from './app.js';
 import { getServerConfig } from './utils/env.js';
+import { bootstrapSeedUsers } from './utils/bootstrap.js';
 
 dotenv.config();
 
@@ -12,6 +13,9 @@ async function start(): Promise<void> {
   try {
     const config = getServerConfig();
     app = buildApp({ config });
+
+    await app.ready();
+    await bootstrapSeedUsers(app);
 
     await app.listen({
       host: config.host,

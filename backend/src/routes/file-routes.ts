@@ -1,9 +1,10 @@
 import { createReadStream } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 
 import { type FastifyInstance, type FastifyRequest } from 'fastify';
 
 import { toFileResponse, type FileResponse } from '../types/api.js';
-import { BadRequestError, UnauthorizedError } from '../utils/http-errors.js';
+import { BadRequestError, NotFoundError, UnauthorizedError } from '../utils/http-errors.js';
 import { fileParamsSchema, fileResponseSchema } from './route-schemas.js';
 
 interface FileParams {
@@ -112,6 +113,85 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
           start: range.start,
         }),
       );
+    },
+  );
+
+  app.get<{ Params: FileParams }>(
+    '/api/files/:fileId/download',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        params: fileParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const descriptor = await app.libraryService.getFileReadDescriptor(
+        getUserId(request),
+        request.params.fileId,
+      );
+
+      reply.header('content-type', descriptor.file.mimeType);
+      reply.header('content-length', descriptor.sizeBytes);
+      reply.header(
+        'content-disposition',
+        `attachment; filename="${descriptor.file.displayName}"`,
+      );
+
+      return reply.send(createReadStream(descriptor.absolutePath));
+    },
+  );
+
+  app.get<{ Params: FileParams }>(
+    '/api/files/:fileId/text',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        params: fileParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const descriptor = await app.libraryService.getFileReadDescriptor(
+        getUserId(request),
+        request.params.fileId,
+      );
+      const mimeType = descriptor.file.mimeType;
+
+      if (
+        !mimeType.startsWith('text/') &&
+        mimeType !== 'application/json' &&
+        mimeType !== 'application/xml'
+      ) {
+        throw new BadRequestError('File type does not support text preview.');
+      }
+
+      const content = await readFile(descriptor.absolutePath, 'utf8');
+
+      reply.header('content-type', 'text/plain; charset=utf-8');
+
+      return content;
+    },
+  );
+
+  app.put<{ Params: FileParams; Reply: FileResponse }>(
+    '/api/files/:fileId/content',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        params: fileParamsSchema,
+        response: {
+          200: fileResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const multipartFile = await request.file();
+      const file = await app.libraryService.updateFileContent(
+        getUserId(request),
+        request.params.fileId,
+        multipartFile,
+      );
+
+      return toFileResponse(file);
     },
   );
 

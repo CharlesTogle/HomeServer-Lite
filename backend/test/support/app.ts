@@ -1,8 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import assert from 'node:assert/strict';
 import { type FastifyInstance } from 'fastify';
 
 import { buildApp } from '../../src/app.js';
@@ -74,49 +74,6 @@ export async function createInMemoryTestAppContext(): Promise<TestAppContext> {
       restoreEnv(previousEnv);
     },
   };
-}
-
-export async function createPostgresTestAppContext(): Promise<TestAppContext> {
-  const databaseUrl = getPostgresTestDatabaseUrl();
-
-  assert.notEqual(
-    databaseUrl,
-    null,
-    'HOMESERVER_POSTGRES_TEST_DATABASE_URL is required for PostgreSQL integration tests.',
-  );
-
-  const storageRoot = await mkdtemp(
-    path.join(os.tmpdir(), 'homeserver-backend-postgres-'),
-  );
-  const previousEnv = captureEnv();
-
-  process.env.AUTH_TOKEN_SECRET = 'homeserver-test-secret';
-  process.env.DATABASE_URL = databaseUrl;
-  delete process.env.HOMESERVER_TEST_MODE;
-  process.env.NODE_ENV = 'test';
-  process.env.PORT = '3999';
-  process.env.REFRESH_TOKEN_TTL_SECONDS = `${60 * 60 * 24 * 30}`;
-  process.env.STORAGE_ROOT = storageRoot;
-
-  const app = buildApp({
-    config: createDurableTestServerConfig(databaseUrl, storageRoot),
-  });
-  await app.ready();
-  await resetPostgresState(app);
-
-  return {
-    app,
-    cleanup: async () => {
-      await resetPostgresState(app);
-      await app.close();
-      await rm(storageRoot, { force: true, recursive: true });
-      restoreEnv(previousEnv);
-    },
-  };
-}
-
-export function hasPostgresTestDatabaseUrl(): boolean {
-  return getPostgresTestDatabaseUrl() !== null;
 }
 
 export function authorizationHeaders(accessToken: string): Record<string, string> {
@@ -210,6 +167,13 @@ export async function seedUserSession(
     userFixture.email,
     userFixture.password,
   );
+  await app.libraryService.ensureUserRootFolder(tokens.user.id);
+
+  const db = app.sqliteDb;
+  db.prepare(
+    'INSERT OR IGNORE INTO user_storage_usage (user_id, used_bytes, quota_bytes) VALUES (?, 0, 107374182400)',
+  ).run(tokens.user.id);
+
   return {
     accessToken: tokens.accessToken,
     refreshCookie: createRefreshCookieHeader(tokens.refreshToken),
@@ -283,54 +247,6 @@ function captureEnv(): PreviousEnv {
     REFRESH_TOKEN_TTL_SECONDS: process.env.REFRESH_TOKEN_TTL_SECONDS,
     STORAGE_ROOT: process.env.STORAGE_ROOT,
   };
-}
-
-function createDurableTestServerConfig(
-  databaseUrl: string,
-  storageRoot: string,
-): ServerConfig {
-  return {
-    accessTokenTtlSeconds: 900,
-    authTokenSecret: 'homeserver-test-secret',
-    databaseUrl,
-    host: '127.0.0.1',
-    persistenceMode: 'durable',
-    port: 3999,
-    refreshTokenTtlSeconds: 60 * 60 * 24 * 30,
-    runtimeMode: 'test',
-    storageRoot,
-  };
-}
-
-function getPostgresTestDatabaseUrl(): string | null {
-  const databaseUrl =
-    process.env.HOMESERVER_POSTGRES_TEST_DATABASE_URL?.trim() ??
-    process.env.HOMESERVER_PRISMA_TEST_DATABASE_URL?.trim();
-
-  if (databaseUrl === undefined || databaseUrl === '') {
-    return null;
-  }
-
-  return databaseUrl;
-}
-
-async function resetPostgresState(app: FastifyInstance): Promise<void> {
-  if (app.pgPool === null) {
-    return;
-  }
-
-  await app.pgPool.query(`
-    TRUNCATE TABLE
-      file_derivatives,
-      media_jobs,
-      upload_items,
-      upload_batches,
-      files,
-      folders,
-      sessions,
-      users
-    RESTART IDENTITY CASCADE
-  `);
 }
 
 function restoreEnv(previousEnv: PreviousEnv): void {

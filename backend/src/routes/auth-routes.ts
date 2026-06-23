@@ -25,6 +25,14 @@ interface SessionResponse {
   user: UserResponse;
 }
 
+interface MeResponse {
+  user: UserResponse;
+  storage: {
+    usedBytes: number;
+    quotaBytes: number;
+  };
+}
+
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: AuthBody; Reply: AuthResponse }>(
     '/api/auth/login',
@@ -143,6 +151,81 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return {
         rootFolderId: rootFolder.id,
         user: toUserResponse(user),
+      };
+    },
+  );
+
+  app.patch<{ Body: { currentPassword: string; newPassword: string } }>(
+    '/api/auth/password',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        body: {
+          additionalProperties: false,
+          properties: {
+            currentPassword: { minLength: 8, type: 'string' },
+            newPassword: { minLength: 8, type: 'string' },
+          },
+          required: ['currentPassword', 'newPassword'],
+          type: 'object',
+        },
+        response: {
+          204: { type: 'null' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const auth = getAuth(request);
+
+      await app.authService.changePassword(
+        auth.userId,
+        request.body.currentPassword,
+        request.body.newPassword,
+      );
+
+      reply.code(204);
+
+      return reply.send();
+    },
+  );
+
+  app.get<{ Reply: MeResponse }>(
+    '/api/me',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        response: {
+          200: {
+            additionalProperties: false,
+            properties: {
+              user: userResponseSchema,
+              storage: {
+                additionalProperties: false,
+                properties: {
+                  usedBytes: { type: 'number' },
+                  quotaBytes: { type: 'number' },
+                },
+                required: ['usedBytes', 'quotaBytes'],
+                type: 'object',
+              },
+            },
+            required: ['user', 'storage'],
+            type: 'object',
+          },
+        },
+      },
+    },
+    async (request) => {
+      const auth = getAuth(request);
+      const user = await app.authService.getUserById(auth.userId);
+      const usage = await app.libraryService.getStorageUsage(auth.userId);
+
+      return {
+        user: toUserResponse(user),
+        storage: {
+          usedBytes: usage.usedBytes,
+          quotaBytes: usage.quotaBytes,
+        },
       };
     },
   );

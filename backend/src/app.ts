@@ -1,11 +1,22 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
-import { MulterError } from 'multer';
 
 import { registerPlugins } from './plugins/index.js';
 import { registerRoutes } from './routes/index.js';
 import type { ServerConfig } from './utils/env.js';
 import { getLoggerOptions } from './utils/logger.js';
+
+class MultipartError extends Error {
+  public readonly code: string;
+  public readonly field?: string;
+
+  public constructor(code: string, field?: string) {
+    super();
+    this.code = code;
+    this.field = field;
+    this.name = 'MulterError';
+  }
+}
 
 export interface BuildAppOptions {
   config: ServerConfig;
@@ -19,7 +30,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   app.decorate('serverConfig', options.config);
 
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof MulterError) {
+    if (error instanceof MultipartError) {
       const statusCode = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
 
       void reply.status(statusCode).send({ message: error.message });

@@ -1,39 +1,64 @@
 import { LoaderCircle } from 'lucide-react'
+import { useEffect } from 'react'
 import { AuthScreen } from './components/auth-screen.tsx'
 import { HomeShell } from './components/home-shell.tsx'
+import { TopBar } from './components/top-bar.tsx'
+import { AccountPage } from './components/account-page.tsx'
 import { useRestoreSessionQuery } from './hooks/use-auth.ts'
+import { useUrlSync } from './hooks/use-url-sync.ts'
 import { useSessionStore } from './stores/session-store.ts'
+import { useWorkspaceStore } from './stores/workspace-store.ts'
+
+function LoadingScreen(): React.JSX.Element {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[var(--card-bg)]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex size-12 items-center justify-center rounded-xl bg-[var(--primary)] text-xl font-bold text-white">
+          H
+        </div>
+        <LoaderCircle className="size-5 animate-spin text-[var(--primary)]" />
+        <p className="text-sm text-[var(--secondary)]">Restoring session...</p>
+      </div>
+    </div>
+  )
+}
+
+function DarkModeSync(): null {
+  const darkMode = useWorkspaceStore((state) => state.darkMode)
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode)
+  }, [darkMode])
+  return null
+}
+
+function AuthenticatedApp(): React.JSX.Element {
+  useUrlSync()
+  const currentPage = useWorkspaceStore((state) => state.currentPage)
+
+  return (
+    <div className="flex min-h-screen flex-col bg-[var(--surface)]">
+      <TopBar />
+      {currentPage === 'account' ? <AccountPage /> : <HomeShell />}
+    </div>
+  )
+}
 
 function App(): React.JSX.Element {
   const accessToken = useSessionStore((state) => state.accessToken)
   const restoreSessionQuery = useRestoreSessionQuery(accessToken === null)
 
-  if (accessToken === null && restoreSessionQuery.isPending) {
-    return (
-      <main className="relative min-h-screen overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(244,114,182,0.14),transparent_24%),radial-gradient(circle_at_82%_8%,rgba(253,208,234,0.48),transparent_18%),radial-gradient(circle_at_50%_120%,rgba(255,216,231,0.74),transparent_34%)]"
-        />
+  const content = accessToken === null
+    ? restoreSessionQuery.isPending
+      ? <LoadingScreen />
+      : <AuthScreen />
+    : <AuthenticatedApp />
 
-        <div className="relative mx-auto flex min-h-[calc(100svh-2rem)] w-full max-w-[560px] items-center justify-center">
-          <section className="flex w-full flex-col items-center gap-4 rounded-[32px] border border-white/50 bg-white/78 px-8 py-10 text-center shadow-[0_32px_80px_rgba(84,66,73,0.12)] backdrop-blur-xl">
-            <LoaderCircle className="size-6 animate-spin text-[color:var(--primary)]" />
-            <div className="space-y-2">
-              <p className="text-lg font-semibold text-[color:var(--on-surface)]">
-                Restoring your private session
-              </p>
-              <p className="text-sm text-[color:var(--on-surface-variant)]">
-                Checking the refresh cookie before showing the sign-in screen.
-              </p>
-            </div>
-          </section>
-        </div>
-      </main>
-    )
-  }
-
-  return accessToken === null ? <AuthScreen /> : <HomeShell />
+  return (
+    <>
+      <DarkModeSync />
+      {content}
+    </>
+  )
 }
 
 export default App

@@ -1,10 +1,9 @@
+import type Database from 'better-sqlite3';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { Pool } from 'pg';
 import type {
   AuthServiceContract,
   LibraryServiceContract,
 } from '../services/contracts.js';
-import type { InMemoryHomeServerStore } from '../store/in-memory-store.js';
 import type {
   AuthenticatedSession,
   DatabaseConnectionState,
@@ -20,9 +19,8 @@ declare module 'fastify' {
     ) => Promise<void>;
     database: DatabaseConnectionState;
     libraryService: LibraryServiceContract;
-    pgPool: Pool | null;
     serverConfig: ServerConfig;
-    store: InMemoryHomeServerStore | null;
+    sqliteDb: Database.Database;
     storageRoot: string;
   }
 

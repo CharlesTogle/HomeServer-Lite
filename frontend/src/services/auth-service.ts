@@ -53,6 +53,13 @@ export async function restoreSession(): Promise<AuthSession> {
   return toAuthSession(response)
 }
 
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiResponse('/api/auth/password', {
+    json: { currentPassword, newPassword },
+    method: 'PATCH',
+  })
+}
+
 export async function logoutSession(): Promise<void> {
   try {
     await apiResponse('/api/auth/logout', {

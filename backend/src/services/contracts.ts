@@ -53,9 +53,35 @@ export interface FileReadDescriptor {
 }
 
 export interface FolderEntries {
+  availableExtensions: string[];
+  existingFileNames: string[];
   files: FileRecord[];
   folder: FolderRecord;
   folders: FolderRecord[];
+  nextOffset: number | null;
+  totalFileCount: number;
+}
+
+export type FolderEntriesSortDirection = 'asc' | 'desc';
+export type FolderEntriesSortField = 'name' | 'date' | 'size' | 'type';
+export type FolderEntriesTypeFilter =
+  | 'all'
+  | 'image'
+  | 'audio'
+  | 'video'
+  | 'document'
+  | 'archive'
+  | 'other';
+
+export interface GetFolderEntriesInput {
+  extensionFilter: string;
+  limit: number;
+  offset: number;
+  search: string;
+  searchIncludesDirectChildren: boolean;
+  sortDirection: FolderEntriesSortDirection;
+  sortField: FolderEntriesSortField;
+  typeFilter: FolderEntriesTypeFilter;
 }
 
 export interface FolderTreeFolder {
@@ -70,6 +96,7 @@ export interface UploadBatchSnapshot {
 
 export interface AuthServiceContract {
   authenticate(accessToken: string): Promise<AuthenticatedSession>;
+  changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void>;
   getUserById(userId: string): Promise<UserRecord>;
   login(email: string, password: string): Promise<AuthTokens>;
   logout(
@@ -105,7 +132,9 @@ export interface LibraryServiceContract {
   ): Promise<FileReadDescriptor>;
   getFilesInFolder(userId: string, folderId: string): Promise<FileRecord[]>;
   getFolder(userId: string, folderId: string): Promise<FolderRecord>;
-  getFolderEntries(userId: string, folderId: string): Promise<FolderEntries>;
+  getFolderEntries(userId: string, folderId: string, input: GetFolderEntriesInput): Promise<FolderEntries>;
+  getSharedFolders(userId: string): Promise<FolderTreeFolder[]>;
+  getSharedStorageUsage(userId: string): Promise<{ usedBytes: number; quotaBytes: number }>;
   listFolders(userId: string): Promise<FolderTreeFolder[]>;
   getRootFolder(userId: string): Promise<FolderRecord>;
   getUploadBatch(
@@ -122,9 +151,52 @@ export interface LibraryServiceContract {
     folderId: string,
     input: UpdateFolderInput,
   ): Promise<FolderRecord>;
+  updateFileContent(
+    userId: string,
+    fileId: string,
+    multipartFile: MultipartFile | undefined,
+  ): Promise<FileRecord>;
   uploadItemContent(
     userId: string,
     itemId: string,
     multipartFile: MultipartFile | undefined,
   ): Promise<FileRecord>;
+  getStorageUsage(userId: string): Promise<{ usedBytes: number; quotaBytes: number }>;
+  // Trash support
+  getTrashedEntries(userId: string): Promise<TrashEntry[]>;
+  restoreTrashEntry(userId: string, itemId: string, isFolder: boolean): Promise<void>;
+  permanentlyDeleteEntry(userId: string, itemId: string, isFolder: boolean): Promise<void>;
+  emptyTrash(userId: string): Promise<number>;
+  cleanupExpiredTrash(): Promise<number>;
+  // Favorites
+  getFavorites(userId: string): Promise<FavoriteEntry[]>;
+  addFavorite(userId: string, itemId: string, itemKind: 'file' | 'folder'): Promise<void>;
+  removeFavorite(userId: string, itemId: string): Promise<void>;
+}
+
+export interface FavoriteEntry {
+  itemId: string;
+  itemKind: 'file' | 'folder';
+  createdAt: string;
+  displayName: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  mediaKind: string;
+  folderId: string | null;
+  parentFolderId: string | null;
+}
+
+export interface TrashEntry {
+  id: string;
+  userId: string;
+  displayName: string;
+  originalName: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  mediaKind: string;
+  folderId: string | null;
+  parentFolderId: string | null;
+  storageRelPath: string | null;
+  deletedAt: Date;
+  isFolder: boolean;
 }

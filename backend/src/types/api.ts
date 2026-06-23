@@ -1,4 +1,4 @@
-import type { FolderTreeFolder } from '../services/contracts.js';
+import type { FavoriteEntry, FolderTreeFolder, TrashEntry } from '../services/contracts.js';
 import type {
   FileRecord,
   FolderRecord,
@@ -40,9 +40,13 @@ export interface FileResponse {
 }
 
 export interface FolderEntriesResponse {
+  availableExtensions: string[];
+  existingFileNames: string[];
   files: FileResponse[];
   folder: FolderResponse;
   folders: FolderResponse[];
+  nextOffset: number | null;
+  totalFileCount: number;
 }
 
 export interface FolderTreeFolderResponse extends FolderResponse {
@@ -51,6 +55,11 @@ export interface FolderTreeFolderResponse extends FolderResponse {
 
 export interface FolderTreeResponse {
   folders: FolderTreeFolderResponse[];
+}
+
+export interface StorageUsageResponse {
+  quotaBytes: number;
+  usedBytes: number;
 }
 
 export interface UploadItemResponse {
@@ -106,11 +115,19 @@ export function toFolderEntriesResponse(
   folder: FolderRecord,
   folders: FolderRecord[],
   files: FileRecord[],
+  nextOffset: number | null,
+  totalFileCount: number,
+  availableExtensions: string[],
+  existingFileNames: string[],
 ): FolderEntriesResponse {
   return {
+    availableExtensions,
+    existingFileNames,
     files: files.map(toFileResponse),
     folder: toFolderResponse(folder),
     folders: folders.map(toFolderResponse),
+    nextOffset,
+    totalFileCount,
   };
 }
 
@@ -170,6 +187,72 @@ export function toUploadItemResponse(item: UploadItemRecord): UploadItemResponse
     originalName: item.originalName,
     status: item.status,
     updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
+export interface TrashEntryResponse {
+  deletedAt: string;
+  displayName: string;
+  folderId: string | null;
+  id: string;
+  isFolder: boolean;
+  mediaKind: string;
+  mimeType: string | null;
+  originalName: string | null;
+  parentFolderId: string | null;
+  sizeBytes: number | null;
+}
+
+export function toTrashEntryResponse(entry: TrashEntry): TrashEntryResponse {
+  return {
+    deletedAt: entry.deletedAt.toISOString(),
+    displayName: entry.displayName,
+    folderId: entry.folderId,
+    id: entry.id,
+    isFolder: entry.isFolder,
+    mediaKind: entry.mediaKind,
+    mimeType: entry.mimeType,
+    originalName: entry.originalName,
+    parentFolderId: entry.parentFolderId,
+    sizeBytes: entry.sizeBytes,
+  };
+}
+
+export function toTrashListResponse(entries: TrashEntry[]): { items: TrashEntryResponse[] } {
+  return {
+    items: entries.map(toTrashEntryResponse),
+  };
+}
+
+export interface FavoriteEntryResponse {
+  createdAt: string;
+  displayName: string;
+  folderId: string | null;
+  itemId: string;
+  itemKind: string;
+  mediaKind: string;
+  mimeType: string | null;
+  parentFolderId: string | null;
+  sizeBytes: number | null;
+}
+
+export function toFavoriteEntryResponse(entry: FavoriteEntry): FavoriteEntryResponse {
+  return {
+    createdAt: entry.createdAt,
+    displayName: entry.displayName,
+    folderId: entry.folderId,
+    itemId: entry.itemId,
+    itemKind: entry.itemKind,
+    mediaKind: entry.mediaKind,
+    mimeType: entry.mimeType,
+    parentFolderId: entry.parentFolderId,
+    sizeBytes: entry.sizeBytes,
+  };
+}
+
+export function toFavoriteListResponse(entries: FavoriteEntry[]): { items: FavoriteEntryResponse[] } {
+  return {
+    items: entries.map(toFavoriteEntryResponse),
   };
 }
 

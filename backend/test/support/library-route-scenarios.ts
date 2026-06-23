@@ -41,6 +41,8 @@ export async function runLibraryOwnershipAndBrowseScenario(
       rootFolder.id,
     );
     const fileFixture = createFileFixture();
+    const secondFileFixture = createFileFixture();
+    const childFileFixture = createFileFixture();
     const batch = await createUploadBatch(
       app,
       firstUser.accessToken,
@@ -58,18 +60,87 @@ export async function runLibraryOwnershipAndBrowseScenario(
       uploadItem.id,
       fileFixture,
     );
+    const secondBatch = await createUploadBatch(
+      app,
+      firstUser.accessToken,
+      destinationFolder.id,
+    );
+    const secondUploadItem = await createUploadItem(
+      app,
+      firstUser.accessToken,
+      secondBatch.id,
+      secondFileFixture.name,
+    );
+    const secondUploadedFile = await uploadFile(
+      app,
+      firstUser.accessToken,
+      secondUploadItem.id,
+      secondFileFixture,
+    );
+    const childFolder = await createFolder(
+      app,
+      firstUser.accessToken,
+      destinationFolder.id,
+    );
+    const childBatch = await createUploadBatch(
+      app,
+      firstUser.accessToken,
+      childFolder.id,
+    );
+    const childUploadItem = await createUploadItem(
+      app,
+      firstUser.accessToken,
+      childBatch.id,
+      childFileFixture.name,
+    );
+    const childUploadedFile = await uploadFile(
+      app,
+      firstUser.accessToken,
+      childUploadItem.id,
+      childFileFixture,
+    );
 
     const folderEntriesResponse = await app.inject({
       headers: authorizationHeaders(firstUser.accessToken),
       method: 'GET',
-      url: `/api/folders/${destinationFolder.id}/entries`,
+      url: `/api/folders/${destinationFolder.id}/entries?limit=1`,
     });
 
     assert.equal(folderEntriesResponse.statusCode, 200);
 
     const folderEntries = folderEntriesResponse.json() as FolderEntriesResponse;
     assert.equal(folderEntries.files.length, 1);
-    assert.equal(folderEntries.files[0]?.id, uploadedFile.id);
+    assert.equal(folderEntries.totalFileCount, 2);
+    assert.equal(folderEntries.nextOffset, 1);
+    assert.deepEqual(folderEntries.existingFileNames.sort(), [fileFixture.name, secondFileFixture.name].sort());
+
+    const nextPageResponse = await app.inject({
+      headers: authorizationHeaders(firstUser.accessToken),
+      method: 'GET',
+      url: `/api/folders/${destinationFolder.id}/entries?limit=1&offset=1`,
+    });
+
+    assert.equal(nextPageResponse.statusCode, 200);
+
+    const nextPageEntries = nextPageResponse.json() as FolderEntriesResponse;
+    assert.equal(nextPageEntries.files.length, 1);
+    assert.equal(nextPageEntries.nextOffset, null);
+    assert.deepEqual(
+      new Set([folderEntries.files[0]?.id, nextPageEntries.files[0]?.id]),
+      new Set([uploadedFile.id, secondUploadedFile.id]),
+    );
+
+    const directChildSearchResponse = await app.inject({
+      headers: authorizationHeaders(firstUser.accessToken),
+      method: 'GET',
+      url: `/api/folders/${destinationFolder.id}/entries?search=${encodeURIComponent(childFileFixture.name)}&searchIncludesDirectChildren=true`,
+    });
+
+    assert.equal(directChildSearchResponse.statusCode, 200);
+
+    const directChildSearchEntries = directChildSearchResponse.json() as FolderEntriesResponse;
+    assert.equal(directChildSearchEntries.files.length, 1);
+    assert.equal(directChildSearchEntries.files[0]?.id, childUploadedFile.id);
 
     const folderTreeResponse = await app.inject({
       headers: authorizationHeaders(firstUser.accessToken),
@@ -89,7 +160,7 @@ export async function runLibraryOwnershipAndBrowseScenario(
     );
 
     assert.equal(rootTreeFolder?.itemCount, 2);
-    assert.equal(destinationTreeFolder?.itemCount, 1);
+    assert.equal(destinationTreeFolder?.itemCount, 3);
     assert.equal(nestedTreeFolder?.itemCount, 0);
 
     const fileResponse = await app.inject({

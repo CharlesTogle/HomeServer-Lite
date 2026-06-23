@@ -1,4 +1,4 @@
-export type DatabaseMode = 'postgresql' | 'test-memory';
+export type DatabaseMode = 'sqlite' | 'test-memory';
 
 export type FileStatus = 'ready' | 'uploading';
 export type UploadBatchStatus = 'completed' | 'open' | 'partial';
@@ -30,6 +30,7 @@ export interface AuthenticatedSession {
 
 export interface FolderRecord {
   createdAt: Date;
+  deletedAt: Date | null;
   displayName: string;
   id: string;
   isRoot: boolean;
@@ -41,6 +42,7 @@ export interface FolderRecord {
 
 export interface FileRecord {
   createdAt: Date;
+  deletedAt: Date | null;
   displayName: string;
   folderId: string;
   id: string;

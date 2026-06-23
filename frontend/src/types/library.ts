@@ -1,5 +1,8 @@
 export type MediaKind = 'image' | 'audio' | 'video' | 'document' | 'archive' | 'other'
 export type LibraryItemKind = 'file' | 'folder'
+export type FolderEntriesSortField = 'name' | 'date' | 'size' | 'type'
+export type FolderEntriesSortDirection = 'asc' | 'desc'
+export type FolderEntriesTypeFilter = 'all' | 'image' | 'audio' | 'video' | 'document' | 'archive' | 'other'
 
 export interface FolderRecord {
   id: string
@@ -29,10 +32,24 @@ export interface FileRecord {
 }
 
 export interface FolderContents {
+  availableExtensions: string[]
   currentFolder: FolderRecord
+  existingFileNames: string[]
   path: FolderRecord[]
   folders: FolderRecord[]
   files: FileRecord[]
+  nextOffset: number | null
+  totalFileCount: number
+}
+
+export interface FolderContentsQuery {
+  extensionFilter: string
+  limit: number
+  search: string
+  searchIncludesDirectChildren: boolean
+  sortDirection: FolderEntriesSortDirection
+  sortField: FolderEntriesSortField
+  typeFilter: FolderEntriesTypeFilter
 }
 
 export interface CreateFolderInput {
@@ -59,4 +76,39 @@ export interface MoveItemInput {
 export interface DownloadItemInput {
   kind: LibraryItemKind
   id: string
+}
+
+export interface FavoriteItem {
+  itemId: string
+  itemKind: LibraryItemKind
+  createdAt: string
+  displayName: string
+  mimeType: string | null
+  sizeBytes: number | null
+  mediaKind: string
+  folderId: string | null
+  parentFolderId: string | null
+}
+
+export interface TrashEntry {
+  deletedAt: string
+  displayName: string
+  folderId: string | null
+  id: string
+  isFolder: boolean
+  mediaKind: string
+  mimeType: string | null
+  originalName: string | null
+  parentFolderId: string | null
+  sizeBytes: number | null
+}
+
+export interface RestoreTrashInput {
+  itemId: string
+  isFolder: boolean
+}
+
+export interface PermanentlyDeleteTrashInput {
+  itemId: string
+  isFolder: boolean
 }

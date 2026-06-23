@@ -110,6 +110,14 @@ export const fileResponseSchema = {
 export const folderEntriesResponseSchema = {
   additionalProperties: false,
   properties: {
+    availableExtensions: {
+      items: { type: 'string' },
+      type: 'array',
+    },
+    existingFileNames: {
+      items: { type: 'string' },
+      type: 'array',
+    },
     files: {
       items: fileResponseSchema,
       type: 'array',
@@ -119,8 +127,20 @@ export const folderEntriesResponseSchema = {
       items: folderResponseSchema,
       type: 'array',
     },
+    nextOffset: {
+      anyOf: [{ type: 'integer' }, { type: 'null' }],
+    },
+    totalFileCount: { type: 'integer' },
   },
-  required: ['files', 'folder', 'folders'],
+  required: [
+    'availableExtensions',
+    'existingFileNames',
+    'files',
+    'folder',
+    'folders',
+    'nextOffset',
+    'totalFileCount',
+  ],
   type: 'object',
 } as const;
 
@@ -133,6 +153,96 @@ export const folderTreeResponseSchema = {
     },
   },
   required: ['folders'],
+  type: 'object',
+} as const;
+
+export const sharedFoldersResponseSchema = {
+  additionalProperties: false,
+  properties: {
+    folders: {
+      items: folderTreeFolderResponseSchema,
+      type: 'array',
+    },
+  },
+  required: ['folders'],
+  type: 'object',
+} as const;
+
+export const storageUsageResponseSchema = {
+  additionalProperties: false,
+  properties: {
+    quotaBytes: { type: 'number' },
+    usedBytes: { type: 'number' },
+  },
+  required: ['usedBytes', 'quotaBytes'],
+  type: 'object',
+} as const;
+
+export const trashEntryResponseSchema = {
+  additionalProperties: false,
+  properties: {
+    deletedAt: { type: 'string' },
+    displayName: { type: 'string' },
+    folderId: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    id: { type: 'string' },
+    isFolder: { type: 'boolean' },
+    mediaKind: { type: 'string' },
+    mimeType: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    originalName: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    parentFolderId: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    sizeBytes: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+  },
+  required: [
+    'deletedAt',
+    'displayName',
+    'folderId',
+    'id',
+    'isFolder',
+    'mediaKind',
+    'mimeType',
+    'originalName',
+    'parentFolderId',
+    'sizeBytes',
+  ],
+  type: 'object',
+} as const;
+
+export const trashListResponseSchema = {
+  additionalProperties: false,
+  properties: {
+    items: {
+      items: trashEntryResponseSchema,
+      type: 'array',
+    },
+  },
+  required: ['items'],
+  type: 'object',
+} as const;
+
+export const restoreTrashEntryBodySchema = {
+  additionalProperties: false,
+  properties: {
+    isFolder: { type: 'boolean' },
+  },
+  required: ['isFolder'],
+  type: 'object',
+} as const;
+
+export const deleteTrashEntryParamsSchema = {
+  additionalProperties: false,
+  properties: {
+    itemId: { minLength: 1, type: 'string' },
+  },
+  required: ['itemId'],
+  type: 'object',
+} as const;
+
+export const deleteTrashEntryQuerystringSchema = {
+  additionalProperties: false,
+  properties: {
+    isFolder: { type: 'string', enum: ['true', 'false'] },
+  },
+  required: ['isFolder'],
   type: 'object',
 } as const;
 

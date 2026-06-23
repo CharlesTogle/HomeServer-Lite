@@ -1,5 +1,9 @@
 import {
+  ArrowDownAZ,
+  ArrowUpAZ,
   ArrowRightLeft,
+  Bookmark,
+  ChevronRight,
   Download,
   FileText,
   Folder,
@@ -16,27 +20,72 @@ import {
   Upload,
   Video,
 } from 'lucide-react'
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { cn } from '../lib/cn.ts'
+import { fieldInputClass, iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui.ts'
 import {
-  chipClass,
-  glassPanelClass,
-  sectionHeadingClass,
-  sectionSubtextClass,
-  softCardClass,
-} from '../lib/ui.ts'
-import { useWorkspaceStore } from '../stores/workspace-store.ts'
+  useAddFavoriteMutation,
+  useFavoritesQuery,
+  useRemoveFavoriteMutation,
+} from '../hooks/use-library.ts'
+import {
+  useWorkspaceStore,
+  type LibrarySortField,
+  type MediaKindFilter,
+} from '../stores/workspace-store.ts'
 import type { FileRecord, FolderContents, FolderRecord } from '../types/library.ts'
 import { formatBytes, formatMediaKind, formatRelativeTime } from '../utils/format.ts'
+
+function compareText(left: string, right: string): number {
+  return left.localeCompare(right, undefined, { sensitivity: 'base', numeric: true })
+}
+
+function compareNumbers(left: number, right: number): number {
+  return left - right
+}
+
+function compareDates(left: string, right: string): number {
+  return compareNumbers(new Date(left).getTime(), new Date(right).getTime())
+}
+
+function sortFolders(
+  folders: FolderRecord[],
+  sortField: LibrarySortField,
+  sortDirection: 'asc' | 'desc',
+): FolderRecord[] {
+  const direction = sortDirection === 'asc' ? 1 : -1
+
+  return [...folders].sort((left, right) => {
+    const comparison =
+      sortField === 'date'
+        ? compareDates(left.createdAt, right.createdAt)
+        : compareText(left.name, right.name)
+
+    return comparison * direction
+  })
+}
+
+const fileTypeOptions: Array<{ label: string; value: MediaKindFilter }> = [
+  { label: 'All types', value: 'all' },
+  { label: 'Images', value: 'image' },
+  { label: 'Videos', value: 'video' },
+  { label: 'Audio', value: 'audio' },
+  { label: 'Documents', value: 'document' },
+  { label: 'Archives', value: 'archive' },
+  { label: 'Other', value: 'other' },
+]
 
 interface LibraryPanelProps {
   contents: FolderContents
   selectedFileId: string | null
   inspectedFolderId: string | null
   busyItemId: string | null
+  isLoadingMoreFiles: boolean
+  isSearchingSubfolders: boolean
   onOpenUpload: () => void
   onOpenCreateFolder: () => void
+  onLoadMoreFiles: () => void
   onOpenFolder: (folderId: string) => void
   onSelectFile: (fileId: string) => void
   onRequestDeleteFolder: (folder: FolderRecord) => void
@@ -47,9 +96,24 @@ interface LibraryPanelProps {
   onRequestMoveFile: (file: FileRecord) => void
   onRequestShowFolderProperties: (folder: FolderRecord) => void
   onRequestShowFileProperties: (file: FileRecord) => void
+  showFilesLoadingState: boolean
 }
 
-interface ItemActionMenuProps {
+function FileIcon(props: { file: FileRecord }): React.JSX.Element {
+  const className = 'size-5'
+  switch (props.file.mediaKind) {
+    case 'image':
+      return <Image className={className} />
+    case 'audio':
+      return <Music className={className} />
+    case 'video':
+      return <Video className={className} />
+    default:
+      return <FileText className={className} />
+  }
+}
+
+function ActionMenu(props: {
   menuId: string
   openMenuId: string | null
   busy: boolean
@@ -60,72 +124,17 @@ interface ItemActionMenuProps {
   onDownload: () => void
   onMove: () => void
   onProperties: () => void
-}
-
-function FileIcon(props: { file: FileRecord }): React.JSX.Element {
-  switch (props.file.mediaKind) {
-    case 'image':
-      return <Image className="size-5" />
-    case 'audio':
-      return <Music className="size-5" />
-    case 'video':
-      return <Video className="size-5" />
-    default:
-      return <FileText className="size-5" />
-  }
-}
-
-function FileVisual(props: { file: FileRecord }): React.JSX.Element {
-  return (
-    <div className="flex aspect-[4/3] items-center justify-center bg-[rgba(61,0,38,0.94)] text-[color:var(--inverse-primary)]">
-      <FileIcon file={props.file} />
-    </div>
-  )
-}
-
-function ActionMenuButton(props: {
-  icon: React.JSX.Element
-  label: string
-  onClick: () => void
-  tone?: 'default' | 'danger'
 }): React.JSX.Element {
-  return (
-    <button
-      className={cn(
-        'flex w-full items-center gap-3 rounded-[18px] px-3 py-2.5 text-left text-sm font-medium transition duration-200',
-        props.tone === 'danger'
-          ? 'text-[color:var(--error)] hover:bg-[rgba(255,218,214,0.9)]'
-          : 'text-[color:var(--secondary)] hover:bg-[rgba(253,242,248,0.9)]',
-      )}
-      role="menuitem"
-      type="button"
-      onClick={props.onClick}
-    >
-      {props.icon}
-      {props.label}
-    </button>
-  )
-}
-
-function ItemActionMenu(props: ItemActionMenuProps): React.JSX.Element {
   const isOpen = props.openMenuId === props.menuId
 
   return (
-    <div
-      className={cn('relative shrink-0', isOpen ? 'z-40' : '')}
-      onBlur={(event) => {
-        const relatedTarget = event.relatedTarget
-
-        if (!(relatedTarget instanceof Node) || !event.currentTarget.contains(relatedTarget)) {
-          props.onClose()
-        }
-      }}
-    >
+    <div className={cn('relative shrink-0', isOpen ? 'z-30' : '')}>
       <button
         aria-expanded={isOpen}
         aria-haspopup="menu"
-        aria-label={`Open actions for ${props.itemLabel}`}
-        className="theme-icon-button"
+        aria-label={`Actions for ${props.itemLabel}`}
+        className="inline-flex size-8 items-center justify-center rounded-lg text-[var(--secondary)] opacity-0 transition-all hover:bg-[var(--surface-container-low)] group-hover/item:opacity-100 data-[open=true]:opacity-100"
+        data-open={isOpen}
         type="button"
         onClick={() => props.onToggle(props.menuId)}
         disabled={props.busy}
@@ -138,488 +147,604 @@ function ItemActionMenu(props: ItemActionMenuProps): React.JSX.Element {
       </button>
 
       {isOpen ? (
-        <div
-          className="absolute right-0 top-12 z-40 w-[208px] rounded-[24px] border border-[rgba(218,192,201,0.9)] bg-white/96 p-2 shadow-[0_24px_60px_rgba(84,66,73,0.14)] backdrop-blur-xl"
-          role="menu"
-        >
-          <ActionMenuButton
-            icon={<Trash2 className="size-4" />}
-            label="Delete"
-            onClick={props.onDelete}
-            tone="danger"
-          />
-          <ActionMenuButton
-            icon={<Download className="size-4" />}
-            label="Download"
-            onClick={props.onDownload}
-          />
-          <ActionMenuButton
-            icon={<ArrowRightLeft className="size-4" />}
-            label="Move"
-            onClick={props.onMove}
-          />
-          <ActionMenuButton
-            icon={<Info className="size-4" />}
-            label="Properties"
-            onClick={props.onProperties}
-          />
-        </div>
+        <>
+          <div className="fixed inset-0 z-30" onClick={props.onClose} />
+          <div className="absolute right-0 top-full z-40 mt-1 min-w-[180px] rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] py-1 shadow-lg">
+            <button
+              className="flex w-full items-center gap-3 px-4 py-2 text-sm text-[var(--on-surface)] transition-colors hover:bg-[var(--surface-container-low)]"
+              type="button"
+              onClick={() => { props.onClose(); props.onProperties() }}
+            >
+              <Info className="size-4" />
+              Properties
+            </button>
+            <button
+              className="flex w-full items-center gap-3 px-4 py-2 text-sm text-[var(--on-surface)] transition-colors hover:bg-[var(--surface-container-low)]"
+              type="button"
+              onClick={() => { props.onClose(); props.onDownload() }}
+            >
+              <Download className="size-4" />
+              Download
+            </button>
+            <button
+              className="flex w-full items-center gap-3 px-4 py-2 text-sm text-[var(--on-surface)] transition-colors hover:bg-[var(--surface-container-low)]"
+              type="button"
+              onClick={() => { props.onClose(); props.onMove() }}
+            >
+              <ArrowRightLeft className="size-4" />
+              Move
+            </button>
+            <hr className="mx-3 border-[var(--outline-variant)]" />
+            <button
+              className="flex w-full items-center gap-3 px-4 py-2 text-sm text-[var(--error)] transition-colors hover:bg-[var(--surface-container-low)]"
+              type="button"
+              onClick={() => { props.onClose(); props.onDelete() }}
+            >
+              <Trash2 className="size-4" />
+              Delete
+            </button>
+          </div>
+        </>
       ) : null}
     </div>
   )
 }
 
 export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
-  const [searchTerm, setSearchTerm] = useState<string>('')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-  const { setViewMode, viewMode } = useWorkspaceStore(
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
+  const {
+    librarySearchTerm,
+    libraryExtensionFilter,
+    librarySortDirection,
+    librarySortField,
+    libraryTypeFilter,
+    setLibraryExtensionFilter,
+    setLibrarySearchTerm,
+    setLibrarySortDirection,
+    setLibrarySortField,
+    setLibraryTypeFilter,
+    setViewMode,
+    viewMode,
+  } = useWorkspaceStore(
     useShallow((state) => ({
+      libraryExtensionFilter: state.libraryExtensionFilter,
+      librarySearchTerm: state.librarySearchTerm,
+      librarySortDirection: state.librarySortDirection,
+      librarySortField: state.librarySortField,
+      libraryTypeFilter: state.libraryTypeFilter,
+      setLibraryExtensionFilter: state.setLibraryExtensionFilter,
+      setLibrarySearchTerm: state.setLibrarySearchTerm,
+      setLibrarySortDirection: state.setLibrarySortDirection,
+      setLibrarySortField: state.setLibrarySortField,
+      setLibraryTypeFilter: state.setLibraryTypeFilter,
       setViewMode: state.setViewMode,
       viewMode: state.viewMode,
     })),
   )
-  const deferredSearchTerm = useDeferredValue(searchTerm)
+  const favoritesQuery = useFavoritesQuery()
+  const favoriteIds = useMemo(
+    () => new Set(favoritesQuery.data?.map((f) => f.itemId) ?? []),
+    [favoritesQuery.data],
+  )
+  const addFavoriteMutation = useAddFavoriteMutation()
+  const removeFavoriteMutation = useRemoveFavoriteMutation()
+
+  function handleToggleFavorite(itemId: string, itemKind: 'file' | 'folder'): void {
+    if (favoriteIds.has(itemId)) {
+      removeFavoriteMutation.mutate(itemId)
+    } else {
+      addFavoriteMutation.mutate({ itemId, itemKind })
+    }
+  }
+
+  const deferredSearchTerm = useDeferredValue(librarySearchTerm)
   const normalizedQuery = deferredSearchTerm.trim().toLowerCase()
-  const filteredFolders =
-    normalizedQuery.length === 0
-      ? props.contents.folders
-      : props.contents.folders.filter((folder) =>
-          folder.name.toLowerCase().includes(normalizedQuery),
-        )
-  const filteredFiles =
-    normalizedQuery.length === 0
-      ? props.contents.files
-      : props.contents.files.filter((file) => file.name.toLowerCase().includes(normalizedQuery))
+  const extensionOptions = useMemo(() => {
+    return ['all', ...props.contents.availableExtensions]
+  }, [props.contents.availableExtensions])
+
+  const filteredFolders = useMemo(() => {
+    const folders =
+      normalizedQuery.length === 0
+        ? props.contents.folders
+        : props.contents.folders.filter((folder) => folder.name.toLowerCase().includes(normalizedQuery))
+
+    return sortFolders(folders, librarySortField, librarySortDirection)
+  }, [librarySortDirection, librarySortField, normalizedQuery, props.contents.folders])
+
+  const filteredFiles = props.contents.files
+  const childFolderNames = useMemo(
+    () => new Map(props.contents.folders.map((folder) => [folder.id, folder.name])),
+    [props.contents.folders],
+  )
+  const nextOffset = props.contents.nextOffset
+  const isLoadingMoreFiles = props.isLoadingMoreFiles
+  const onLoadMoreFiles = props.onLoadMoreFiles
+
+  const hasActiveFileFilters = libraryTypeFilter !== 'all' || libraryExtensionFilter !== 'all'
+
+  useEffect(() => {
+    const node = loadMoreRef.current
+
+    if (node === null || nextOffset === null || isLoadingMoreFiles) {
+      return
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        onLoadMoreFiles()
+      }
+    }, {
+      rootMargin: '320px 0px',
+    })
+
+    observer.observe(node)
+
+    return () => observer.disconnect()
+  }, [isLoadingMoreFiles, nextOffset, onLoadMoreFiles])
+
   return (
-    <section className={cn(glassPanelClass, 'p-5 sm:p-6')}>
-      <div className="space-y-6">
-        <header className="space-y-4 border-b border-[rgba(218,192,201,0.72)] pb-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0 space-y-2">
-              <div className="flex flex-wrap items-center gap-2 text-sm text-[color:var(--secondary)]">
-                {props.contents.path.map((folder, index) => (
-                  <span key={folder.id} className="inline-flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="rounded-full px-2.5 py-1 transition hover:bg-white/66 hover:text-[color:var(--on-surface)]"
-                      onClick={() => props.onOpenFolder(folder.id)}
-                    >
-                      {folder.name}
-                    </button>
-                    {index < props.contents.path.length - 1 ? <span>/</span> : null}
-                  </span>
-                ))}
-              </div>
+    <div className="flex flex-1 flex-col p-6 animate-[fade-in_200ms_ease-out]">
+      <div className="mb-5 flex items-center gap-1.5 text-sm text-[var(--secondary)]">
+        {props.contents.path.map((folder, index) => (
+          <span key={folder.id} className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className="rounded-md px-1 py-0.5 transition-colors hover:text-[var(--on-surface)]"
+              onClick={() => props.onOpenFolder(folder.id)}
+            >
+              {folder.name}
+            </button>
+            {index < props.contents.path.length - 1 ? (
+              <ChevronRight className="size-3.5 text-[var(--outline)]" />
+            ) : null}
+          </span>
+        ))}
+      </div>
 
-              <p aria-live="polite" className="text-sm text-[color:var(--on-surface-variant)]">
-                Showing {filteredFolders.length} folders and {filteredFiles.length} files
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 self-start">
-              <button className="theme-button-secondary" type="button" onClick={props.onOpenUpload}>
-                <Upload className="size-4" />
-                Add files
-              </button>
-              <button
-                aria-label="Create folder"
-                className="theme-icon-button"
-                type="button"
-                onClick={props.onOpenCreateFolder}
-              >
-                <FolderPlus className="size-4" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <label className="relative block w-full lg:max-w-[360px]" htmlFor="folder-search">
-              <span className="sr-only">Search the current folder</span>
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[color:var(--secondary)]" />
-              <input
-                id="folder-search"
-                aria-label="Search the current folder"
-                className="theme-input rounded-full pl-10 pr-4"
-                placeholder="Search the current room"
-                type="search"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.currentTarget.value)}
-              />
-            </label>
-
-            <div className="inline-flex items-center rounded-full border border-[rgba(218,192,201,0.92)] bg-white/84 p-1">
-              <button
-                aria-label="Switch to grid view"
-                className={cn(
-                  'inline-flex size-10 items-center justify-center rounded-full transition duration-200',
-                  viewMode === 'grid'
-                    ? 'bg-[color:var(--primary)] text-white shadow-[0_14px_24px_rgba(164,48,115,0.22)]'
-                    : 'text-[color:var(--secondary)] hover:bg-[rgba(253,242,248,0.9)]',
-                )}
-                type="button"
-                  onClick={() => setViewMode('grid')}
-                >
-                  <LayoutGrid className="size-4" />
-                </button>
-              <button
-                aria-label="Switch to list view"
-                className={cn(
-                  'inline-flex size-10 items-center justify-center rounded-full transition duration-200',
-                  viewMode === 'list'
-                    ? 'bg-[color:var(--primary)] text-white shadow-[0_14px_24px_rgba(164,48,115,0.22)]'
-                    : 'text-[color:var(--secondary)] hover:bg-[rgba(253,242,248,0.9)]',
-                )}
-                type="button"
-                  onClick={() => setViewMode('list')}
-                >
-                  <List className="size-4" />
-                </button>
-            </div>
-          </div>
-        </header>
-
-        <div className="space-y-5">
-          <div className="space-y-2">
-            <p className={sectionHeadingClass}>Folders</p>
-            <p className={sectionSubtextClass}>
-              Open a nested room, or use the action menu for safe move, download, and property
-              flows.
-            </p>
-          </div>
-
-          {filteredFolders.length > 0 ? (
-            viewMode === 'grid' ? (
-              <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                {filteredFolders.map((folder) => {
-                  const isInspected = props.inspectedFolderId === folder.id
-                  const isBusy = props.busyItemId === folder.id
-                  const menuId = `folder:${folder.id}`
-                  const isMenuOpen = openMenuId === menuId
-
-                  return (
-                    <article
-                      key={folder.id}
-                      className={cn(
-                        softCardClass,
-                        'relative p-4 transition duration-200 hover:-translate-y-0.5',
-                        isMenuOpen ? 'z-30' : '',
-                        isInspected
-                          ? 'ring-4 ring-[rgba(255,216,231,0.92)] shadow-[0_22px_42px_rgba(164,48,115,0.16)]'
-                          : '',
-                      )}
-                    >
-                      <div
-                        aria-hidden="true"
-                        className="absolute inset-x-0 top-0 h-20 bg-[radial-gradient(circle_at_top,rgba(244,114,182,0.16),transparent_70%)]"
-                      />
-
-                      <div className="relative flex items-start justify-between gap-3">
-                        <span className="inline-flex size-12 items-center justify-center rounded-[18px] border border-[rgba(218,192,201,0.92)] bg-white/80 text-[color:var(--primary)]">
-                          <Folder className="size-5" />
-                        </span>
-                        <ItemActionMenu
-                          menuId={menuId}
-                          openMenuId={openMenuId}
-                          busy={isBusy}
-                          itemLabel={folder.name}
-                          onToggle={(menuId) => {
-                            setOpenMenuId((currentId) => (currentId === menuId ? null : menuId))
-                          }}
-                          onClose={() => setOpenMenuId(null)}
-                          onDelete={() => {
-                            setOpenMenuId(null)
-                            props.onRequestDeleteFolder(folder)
-                          }}
-                          onDownload={() => {
-                            setOpenMenuId(null)
-                            props.onRequestDownloadFolder(folder)
-                          }}
-                          onMove={() => {
-                            setOpenMenuId(null)
-                            props.onRequestMoveFolder(folder)
-                          }}
-                          onProperties={() => {
-                            setOpenMenuId(null)
-                            props.onRequestShowFolderProperties(folder)
-                          }}
-                        />
-                      </div>
-
-                      <button
-                        className="relative mt-5 flex w-full flex-col items-start gap-2 text-left"
-                        type="button"
-                        onClick={() => props.onOpenFolder(folder.id)}
-                      >
-                        <span className={sectionHeadingClass}>Nested room</span>
-                        <h3 className="text-base font-semibold text-[color:var(--on-surface)]">
-                          {folder.name}
-                        </h3>
-                        <p className="text-sm leading-6 text-[color:var(--on-surface-variant)]">
-                          Created {formatRelativeTime(folder.createdAt)} with {folder.itemCount}{' '}
-                          direct items.
-                        </p>
-                      </button>
-                    </article>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="divide-y divide-[rgba(218,192,201,0.54)]">
-                {filteredFolders.map((folder) => {
-                  const isInspected = props.inspectedFolderId === folder.id
-                  const isBusy = props.busyItemId === folder.id
-                  const menuId = `folder:${folder.id}`
-                  const isMenuOpen = openMenuId === menuId
-
-                  return (
-                    <article
-                      key={folder.id}
-                      className={cn(
-                        'relative flex items-center gap-3 py-2.5 transition duration-200',
-                        isMenuOpen ? 'z-30' : '',
-                        isInspected
-                          ? 'border-l-2 border-[rgba(164,48,115,0.72)] pl-3'
-                          : '',
-                      )}
-                    >
-                      <button
-                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                        type="button"
-                        onClick={() => props.onOpenFolder(folder.id)}
-                      >
-                        <div className="flex size-9 shrink-0 items-center justify-center text-[color:var(--primary)]">
-                          <Folder className="size-[18px]" />
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <h3 className="truncate text-sm font-semibold text-[color:var(--on-surface)]">
-                            {folder.name}
-                          </h3>
-                          <p className="truncate text-sm text-[color:var(--on-surface-variant)]">
-                            Created {formatRelativeTime(folder.createdAt)}
-                          </p>
-                        </div>
-
-                        <div className="hidden shrink-0 text-right md:block">
-                          <p className="text-sm font-medium text-[color:var(--secondary)]">Folder</p>
-                          <p className="text-sm text-[color:var(--secondary)]">
-                            {folder.itemCount} items
-                          </p>
-                        </div>
-                      </button>
-
-                      <ItemActionMenu
-                        menuId={menuId}
-                        openMenuId={openMenuId}
-                        busy={isBusy}
-                        itemLabel={folder.name}
-                        onToggle={(menuId) => {
-                          setOpenMenuId((currentId) => (currentId === menuId ? null : menuId))
-                        }}
-                        onClose={() => setOpenMenuId(null)}
-                        onDelete={() => {
-                          setOpenMenuId(null)
-                          props.onRequestDeleteFolder(folder)
-                        }}
-                        onDownload={() => {
-                          setOpenMenuId(null)
-                          props.onRequestDownloadFolder(folder)
-                        }}
-                        onMove={() => {
-                          setOpenMenuId(null)
-                          props.onRequestMoveFolder(folder)
-                        }}
-                        onProperties={() => {
-                          setOpenMenuId(null)
-                          props.onRequestShowFolderProperties(folder)
-                        }}
-                      />
-                    </article>
-                  )
-                })}
-              </div>
-            )
-          ) : (
-            <div className="flex min-h-[150px] items-center justify-center rounded-[28px] border border-dashed border-[rgba(218,192,201,0.88)] bg-white/44 px-6 py-8 text-center">
-              <div className="space-y-2">
-                <Folder className="mx-auto size-5 text-[color:var(--primary)]" />
-                <p className="text-sm leading-6 text-[color:var(--on-surface-variant)]">
-                  No matching folders in this room.
-                </p>
-              </div>
-            </div>
-          )}
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <button
+            className={primaryButtonClass}
+            type="button"
+            onClick={props.onOpenUpload}
+          >
+            <Upload className="size-4" />
+            Upload
+          </button>
+          <button
+            aria-label="Create folder"
+            className={secondaryButtonClass}
+            type="button"
+            onClick={props.onOpenCreateFolder}
+          >
+            <FolderPlus className="size-4" />
+            New folder
+          </button>
         </div>
 
-        {filteredFiles.length > 0 ? (
-          <div className="space-y-5">
-            <p className={sectionHeadingClass}>Files</p>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <label className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--outline)]" />
+            <input
+              aria-label="Search"
+              className="h-8 w-44 rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] pl-8 pr-3 text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] transition-all focus:w-60 focus:border-[var(--primary)] focus:outline-none"
+              placeholder="Search..."
+              type="search"
+              value={librarySearchTerm}
+              onChange={(event) => setLibrarySearchTerm(event.currentTarget.value)}
+            />
+          </label>
 
-            {viewMode === 'grid' ? (
-              <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                {filteredFiles.map((file) => {
-                  const isSelected = props.selectedFileId === file.id
-                  const isBusy = props.busyItemId === file.id
-                  const menuId = `file:${file.id}`
-                  const isMenuOpen = openMenuId === menuId
+          <label className="sr-only" htmlFor="library-sort-field">Sort by</label>
+          <select
+            id="library-sort-field"
+            className={cn(fieldInputClass, 'h-8 w-[8.5rem] py-0 pr-8')}
+            value={librarySortField}
+            onChange={(event) => setLibrarySortField(event.currentTarget.value as LibrarySortField)}
+          >
+            <option value="name">Sort: Name</option>
+            <option value="date">Sort: Date</option>
+            <option value="size">Sort: Size</option>
+            <option value="type">Sort: Type</option>
+          </select>
 
-                  return (
-                    <article
-                      key={file.id}
-                      className={cn(
-                        softCardClass,
-                        'relative p-3 transition duration-200 hover:-translate-y-0.5',
-                        isMenuOpen ? 'z-30' : '',
-                        isSelected
-                          ? 'ring-4 ring-[rgba(255,216,231,0.92)] shadow-[0_22px_42px_rgba(164,48,115,0.16)]'
-                          : '',
-                      )}
-                    >
-                      <button
-                        className="flex w-full flex-col gap-4 text-left"
-                        type="button"
-                        onClick={() => props.onSelectFile(file.id)}
-                      >
-                        <div className="overflow-hidden rounded-[24px] border border-[rgba(218,192,201,0.92)] bg-[rgba(61,0,38,0.94)]">
-                          <FileVisual file={file} />
-                        </div>
+          <button
+            aria-label={librarySortDirection === 'asc' ? 'Ascending sort' : 'Descending sort'}
+            className={iconButtonClass}
+            type="button"
+            onClick={() => setLibrarySortDirection(librarySortDirection === 'asc' ? 'desc' : 'asc')}
+          >
+            {librarySortDirection === 'asc' ? <ArrowUpAZ className="size-4" /> : <ArrowDownAZ className="size-4" />}
+          </button>
 
-                        <div className="space-y-3 px-1">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2 text-[color:var(--primary)]">
-                              <FileIcon file={file} />
-                              <span className="truncate text-sm font-semibold text-[color:var(--on-surface)]">
-                                {file.name}
-                              </span>
-                            </div>
-                            <p className="text-sm leading-6 text-[color:var(--on-surface-variant)]">
-                              {file.description}
-                            </p>
-                          </div>
+          <label className="sr-only" htmlFor="library-type-filter">Filter by type</label>
+          <select
+            id="library-type-filter"
+            className={cn(fieldInputClass, 'h-8 w-[8.5rem] py-0 pr-8')}
+            value={libraryTypeFilter}
+            onChange={(event) => setLibraryTypeFilter(event.currentTarget.value as MediaKindFilter)}
+          >
+            {fileTypeOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
 
-                          <div className="flex flex-wrap gap-2">
-                            <span className={chipClass}>{formatMediaKind(file.mediaKind)}</span>
-                            <span className={chipClass}>{formatBytes(file.sizeBytes)}</span>
-                          </div>
-                        </div>
-                      </button>
+          <label className="sr-only" htmlFor="library-extension-filter">Filter by extension</label>
+          <select
+            id="library-extension-filter"
+            className={cn(fieldInputClass, 'h-8 w-[8.5rem] py-0 pr-8')}
+            value={extensionOptions.includes(libraryExtensionFilter) ? libraryExtensionFilter : 'all'}
+            onChange={(event) => setLibraryExtensionFilter(event.currentTarget.value)}
+          >
+            <option value="all">All extensions</option>
+            {extensionOptions
+              .filter((extension) => extension !== 'all')
+              .map((extension) => (
+                <option key={extension} value={extension}>.{extension}</option>
+              ))}
+          </select>
 
-                      <div className="mt-4 flex items-center justify-between gap-3 px-1">
-                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--secondary)]">
-                          Added {formatRelativeTime(file.createdAt)}
-                        </span>
-                        <ItemActionMenu
-                          menuId={menuId}
-                          openMenuId={openMenuId}
-                          busy={isBusy}
-                          itemLabel={file.name}
-                          onToggle={(menuId) => {
-                            setOpenMenuId((currentId) => (currentId === menuId ? null : menuId))
-                          }}
-                          onClose={() => setOpenMenuId(null)}
-                          onDelete={() => {
-                            setOpenMenuId(null)
-                            props.onRequestDeleteFile(file)
-                          }}
-                          onDownload={() => {
-                            setOpenMenuId(null)
-                            props.onRequestDownloadFile(file)
-                          }}
-                          onMove={() => {
-                            setOpenMenuId(null)
-                            props.onRequestMoveFile(file)
-                          }}
-                          onProperties={() => {
-                            setOpenMenuId(null)
-                            props.onRequestShowFileProperties(file)
-                          }}
-                        />
-                      </div>
-                    </article>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="divide-y divide-[rgba(218,192,201,0.54)]">
-                {filteredFiles.map((file) => {
-                  const isSelected = props.selectedFileId === file.id
-                  const isBusy = props.busyItemId === file.id
-                  const menuId = `file:${file.id}`
-                  const isMenuOpen = openMenuId === menuId
-
-                  return (
-                    <article
-                      key={file.id}
-                      className={cn(
-                        'relative flex items-center gap-4 py-2.5 transition duration-200',
-                        isMenuOpen ? 'z-30' : '',
-                        isSelected
-                          ? 'border-l-2 border-[rgba(164,48,115,0.72)] pl-3'
-                          : '',
-                      )}
-                    >
-                      <button
-                        className="flex min-w-0 flex-1 items-center gap-4 text-left"
-                        type="button"
-                        onClick={() => props.onSelectFile(file.id)}
-                      >
-                        <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-[12px] bg-[rgba(61,0,38,0.94)] text-[color:var(--inverse-primary)]">
-                          <FileVisual file={file} />
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <h3 className="truncate text-sm font-semibold text-[color:var(--on-surface)]">
-                            {file.name}
-                          </h3>
-                          <p className="mt-1 truncate text-sm text-[color:var(--on-surface-variant)]">
-                            {file.description}
-                          </p>
-                        </div>
-
-                        <div className="hidden shrink-0 text-right lg:block">
-                          <p className="text-sm font-medium text-[color:var(--secondary)]">
-                            {formatMediaKind(file.mediaKind)}
-                          </p>
-                          <p className="mt-1 text-sm text-[color:var(--secondary)]">
-                            {formatBytes(file.sizeBytes)}
-                          </p>
-                        </div>
-                      </button>
-
-                      <ItemActionMenu
-                        menuId={menuId}
-                        openMenuId={openMenuId}
-                        busy={isBusy}
-                        itemLabel={file.name}
-                        onToggle={(menuId) => {
-                          setOpenMenuId((currentId) => (currentId === menuId ? null : menuId))
-                        }}
-                        onClose={() => setOpenMenuId(null)}
-                        onDelete={() => {
-                          setOpenMenuId(null)
-                          props.onRequestDeleteFile(file)
-                        }}
-                        onDownload={() => {
-                          setOpenMenuId(null)
-                          props.onRequestDownloadFile(file)
-                        }}
-                        onMove={() => {
-                          setOpenMenuId(null)
-                          props.onRequestMoveFile(file)
-                        }}
-                        onProperties={() => {
-                          setOpenMenuId(null)
-                          props.onRequestShowFileProperties(file)
-                        }}
-                      />
-                    </article>
-                  )
-                })}
-              </div>
-            )}
+          <div className="flex items-center rounded-lg border border-[var(--outline-variant)] p-0.5">
+            <button
+              aria-label="Grid view"
+              className={cn(
+                'inline-flex size-7 items-center justify-center rounded-md transition-colors',
+                viewMode === 'grid'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--secondary)] hover:bg-[var(--surface-container-low)]',
+              )}
+              type="button"
+              onClick={() => setViewMode('grid')}
+            >
+              <LayoutGrid className="size-3.5" />
+            </button>
+            <button
+              aria-label="List view"
+              className={cn(
+                'inline-flex size-7 items-center justify-center rounded-md transition-colors',
+                viewMode === 'list'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--secondary)] hover:bg-[var(--surface-container-low)]',
+              )}
+              type="button"
+              onClick={() => setViewMode('list')}
+            >
+              <List className="size-3.5" />
+            </button>
           </div>
+        </div>
+      </div>
+
+      <div className="mb-4 flex items-center justify-between gap-3 text-xs text-[var(--secondary)]">
+        <span>
+          {props.contents.totalFileCount === 0
+            ? 'No files'
+            : props.contents.nextOffset === null
+              ? `${props.contents.totalFileCount} file${props.contents.totalFileCount === 1 ? '' : 's'}`
+              : `${filteredFiles.length} of ${props.contents.totalFileCount} files loaded`}
+        </span>
+        {props.isSearchingSubfolders && normalizedQuery.length > 0 ? (
+          <span>Searching this folder and direct subfolders</span>
         ) : null}
       </div>
-    </section>
+
+      {filteredFolders.length > 0 ? (
+        viewMode === 'grid' ? (
+          <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {filteredFolders.map((folder) => {
+              const isInspected = props.inspectedFolderId === folder.id
+              const isBusy = props.busyItemId === folder.id
+              const menuId = `folder:${folder.id}`
+
+              return (
+                <div
+                  key={folder.id}
+                  className={cn(
+                    'group/item relative rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-3 transition-all hover:shadow-[0_1px_6px_rgba(0,0,0,0.1)]',
+                    isInspected ? 'ring-2 ring-[var(--primary)] ring-offset-1' : '',
+                  )}
+                >
+                  <button
+                    className="flex w-full flex-col items-start gap-2 text-left"
+                    type="button"
+                    onClick={() => props.onOpenFolder(folder.id)}
+                  >
+                    <div className="flex size-12 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]">
+                      <Folder className="size-6" />
+                    </div>
+                    <span className="mt-1 line-clamp-2 text-sm font-medium text-[var(--on-surface)]">
+                      {folder.name}
+                    </span>
+                    <span className="text-xs text-[var(--secondary)]">
+                      {folder.itemCount} item{folder.itemCount !== 1 ? 's' : ''}
+                    </span>
+                  </button>
+
+                  <button
+                    aria-label={favoriteIds.has(folder.id) ? 'Remove from favorites' : 'Add to favorites'}
+                    className={`inline-flex size-8 items-center justify-center rounded-lg transition-all hover:bg-[var(--surface-container-low)] ${
+                      favoriteIds.has(folder.id)
+                        ? 'text-[var(--primary)] opacity-100'
+                        : 'text-[var(--secondary)] opacity-0 group-hover/item:opacity-100'
+                    }`}
+                    type="button"
+                    disabled={addFavoriteMutation.isPending || removeFavoriteMutation.isPending}
+                    onClick={() => handleToggleFavorite(folder.id, 'folder')}
+                  >
+                    <Bookmark className={`size-4 ${favoriteIds.has(folder.id) ? 'fill-[var(--primary)]' : ''}`} />
+                  </button>
+                  <div className="absolute right-2 top-2">
+                    <ActionMenu
+                      menuId={menuId}
+                      openMenuId={openMenuId}
+                      busy={isBusy}
+                      itemLabel={folder.name}
+                      onToggle={(menuId) => {
+                        setOpenMenuId((currentId) => (currentId === menuId ? null : menuId))
+                      }}
+                      onClose={() => setOpenMenuId(null)}
+                      onDelete={() => props.onRequestDeleteFolder(folder)}
+                      onDownload={() => props.onRequestDownloadFolder(folder)}
+                      onMove={() => props.onRequestMoveFolder(folder)}
+                      onProperties={() => props.onRequestShowFolderProperties(folder)}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="mb-6 overflow-hidden rounded-lg border border-[var(--outline-variant)]">
+            {filteredFolders.map((folder) => {
+              const isInspected = props.inspectedFolderId === folder.id
+              const isBusy = props.busyItemId === folder.id
+              const menuId = `folder:${folder.id}`
+
+              return (
+                <div
+                  key={folder.id}
+                  className={cn(
+                    'group/item flex items-center gap-3 border-b border-[var(--outline-variant)] last:border-b-0',
+                    isInspected ? 'bg-[color-mix(in_srgb,var(--primary)_4%,transparent)]' : '',
+                  )}
+                >
+                  <button
+                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left"
+                    type="button"
+                    onClick={() => props.onOpenFolder(folder.id)}
+                  >
+                    <Folder className="size-5 shrink-0 text-[var(--primary)]" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--on-surface)]">
+                      {folder.name}
+                    </span>
+                    <span className="hidden shrink-0 text-xs text-[var(--secondary)] sm:inline">
+                      Folder &middot; {folder.itemCount} items
+                    </span>
+                  </button>
+
+                  <button
+                    aria-label={favoriteIds.has(folder.id) ? 'Remove from favorites' : 'Add to favorites'}
+                    className={`inline-flex size-8 items-center justify-center rounded-lg transition-all hover:bg-[var(--surface-container-low)] ${
+                      favoriteIds.has(folder.id)
+                        ? 'text-[var(--primary)] opacity-100'
+                        : 'text-[var(--secondary)] opacity-0 group-hover/item:opacity-100'
+                    }`}
+                    type="button"
+                    disabled={addFavoriteMutation.isPending || removeFavoriteMutation.isPending}
+                    onClick={() => handleToggleFavorite(folder.id, 'folder')}
+                  >
+                    <Bookmark className={`size-4 ${favoriteIds.has(folder.id) ? 'fill-[var(--primary)]' : ''}`} />
+                  </button>
+
+                  <div className="pr-2">
+                    <ActionMenu
+                      menuId={menuId}
+                      openMenuId={openMenuId}
+                      busy={isBusy}
+                      itemLabel={folder.name}
+                      onToggle={(menuId) => {
+                        setOpenMenuId((currentId) => (currentId === menuId ? null : menuId))
+                      }}
+                      onClose={() => setOpenMenuId(null)}
+                      onDelete={() => props.onRequestDeleteFolder(folder)}
+                      onDownload={() => props.onRequestDownloadFolder(folder)}
+                      onMove={() => props.onRequestMoveFolder(folder)}
+                      onProperties={() => props.onRequestShowFolderProperties(folder)}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      ) : null}
+
+      {filteredFiles.length > 0 ? (
+        viewMode === 'grid' ? (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {filteredFiles.map((file) => {
+              const isSelected = props.selectedFileId === file.id
+              const isBusy = props.busyItemId === file.id
+              const menuId = `file:${file.id}`
+
+              return (
+                <div
+                  key={file.id}
+                  className={cn(
+                    'group/item relative rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-3 transition-all hover:shadow-[0_1px_6px_rgba(0,0,0,0.1)]',
+                    isSelected ? 'ring-2 ring-[var(--primary)] ring-offset-1' : '',
+                  )}
+                >
+                  <button
+                    className="flex w-full flex-col items-start gap-2 text-left"
+                    type="button"
+                    onClick={() => props.onSelectFile(file.id)}
+                  >
+                    <div className="flex size-12 items-center justify-center rounded-xl bg-[var(--surface-container)] text-[var(--secondary)]">
+                      <FileIcon file={file} />
+                    </div>
+                    <span className="mt-1 line-clamp-2 text-sm font-medium text-[var(--on-surface)]">
+                      {file.name}
+                    </span>
+                     <span className="text-xs text-[var(--secondary)]">
+                       {formatBytes(file.sizeBytes)}
+                     </span>
+                     {normalizedQuery.length > 0 && file.folderId !== props.contents.currentFolder.id ? (
+                       <span className="text-xs text-[var(--secondary)]">
+                         In {childFolderNames.get(file.folderId) ?? 'subfolder'}
+                       </span>
+                     ) : null}
+                   </button>
+
+                  <div className="absolute right-10 top-2">
+                    <button
+                      aria-label={favoriteIds.has(file.id) ? 'Remove from favorites' : 'Add to favorites'}
+                      className={`inline-flex size-8 items-center justify-center rounded-lg transition-all hover:bg-[var(--surface-container-low)] ${
+                        favoriteIds.has(file.id)
+                          ? 'text-[var(--primary)] opacity-100'
+                          : 'text-[var(--secondary)] opacity-0 group-hover/item:opacity-100'
+                      }`}
+                      type="button"
+                      disabled={addFavoriteMutation.isPending || removeFavoriteMutation.isPending}
+                      onClick={() => handleToggleFavorite(file.id, 'file')}
+                    >
+                      <Bookmark className={`size-4 ${favoriteIds.has(file.id) ? 'fill-[var(--primary)]' : ''}`} />
+                    </button>
+                  </div>
+                  <div className="absolute right-2 top-2">
+                    <ActionMenu
+                      menuId={menuId}
+                      openMenuId={openMenuId}
+                      busy={isBusy}
+                      itemLabel={file.name}
+                      onToggle={(menuId) => {
+                        setOpenMenuId((currentId) => (currentId === menuId ? null : menuId))
+                      }}
+                      onClose={() => setOpenMenuId(null)}
+                      onDelete={() => props.onRequestDeleteFile(file)}
+                      onDownload={() => props.onRequestDownloadFile(file)}
+                      onMove={() => props.onRequestMoveFile(file)}
+                      onProperties={() => props.onRequestShowFileProperties(file)}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-lg border border-[var(--outline-variant)]">
+            <div className="flex items-center gap-3 border-b border-[var(--outline-variant)] px-4 py-2 text-xs font-medium text-[var(--secondary)]">
+              <span className="w-8 shrink-0" />
+              <span className="min-w-0 flex-1">Name</span>
+              <span className="hidden w-20 shrink-0 md:inline">Type</span>
+              <span className="hidden w-20 shrink-0 text-right md:inline">Size</span>
+              <span className="hidden w-24 shrink-0 text-right md:inline">Added</span>
+              <span className="w-8 shrink-0" />
+            </div>
+            {filteredFiles.map((file) => {
+              const isSelected = props.selectedFileId === file.id
+              const isBusy = props.busyItemId === file.id
+              const menuId = `file:${file.id}`
+
+              return (
+                <div
+                  key={file.id}
+                  className={cn(
+                    'group/item flex items-center gap-3 border-b border-[var(--outline-variant)] last:border-b-0',
+                    isSelected ? 'bg-[color-mix(in_srgb,var(--primary)_4%,transparent)]' : '',
+                  )}
+                >
+                  <button
+                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left"
+                    type="button"
+                    onClick={() => props.onSelectFile(file.id)}
+                  >
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-container)] text-[var(--secondary)]">
+                      <FileIcon file={file} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-[var(--on-surface)]">
+                        {file.name}
+                      </div>
+                      {normalizedQuery.length > 0 && file.folderId !== props.contents.currentFolder.id ? (
+                        <div className="truncate text-xs text-[var(--secondary)]">
+                          In {childFolderNames.get(file.folderId) ?? 'subfolder'}
+                        </div>
+                      ) : null}
+                    </div>
+                    <span className="hidden w-20 shrink-0 text-xs text-[var(--secondary)] md:inline">
+                      {formatMediaKind(file.mediaKind)}
+                    </span>
+                    <span className="hidden w-20 shrink-0 text-right text-xs text-[var(--secondary)] md:inline">
+                      {formatBytes(file.sizeBytes)}
+                    </span>
+                     <span className="hidden w-24 shrink-0 text-right text-xs text-[var(--secondary)] md:inline">
+                       {formatRelativeTime(file.createdAt)}
+                     </span>
+                  </button>
+
+                  <button
+                    aria-label={favoriteIds.has(file.id) ? 'Remove from favorites' : 'Add to favorites'}
+                    className={`inline-flex size-8 items-center justify-center rounded-lg transition-all hover:bg-[var(--surface-container-low)] ${
+                      favoriteIds.has(file.id)
+                        ? 'text-[var(--primary)] opacity-100'
+                        : 'text-[var(--secondary)] opacity-0 group-hover/item:opacity-100'
+                    }`}
+                    type="button"
+                    disabled={addFavoriteMutation.isPending || removeFavoriteMutation.isPending}
+                    onClick={() => handleToggleFavorite(file.id, 'file')}
+                  >
+                    <Bookmark className={`size-4 ${favoriteIds.has(file.id) ? 'fill-[var(--primary)]' : ''}`} />
+                  </button>
+
+                  <div className="pr-2">
+                    <ActionMenu
+                      menuId={menuId}
+                      openMenuId={openMenuId}
+                      busy={isBusy}
+                      itemLabel={file.name}
+                      onToggle={(menuId) => {
+                        setOpenMenuId((currentId) => (currentId === menuId ? null : menuId))
+                      }}
+                      onClose={() => setOpenMenuId(null)}
+                      onDelete={() => props.onRequestDeleteFile(file)}
+                      onDownload={() => props.onRequestDownloadFile(file)}
+                      onMove={() => props.onRequestMoveFile(file)}
+                      onProperties={() => props.onRequestShowFileProperties(file)}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      ) : (
+        <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] p-12">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Upload className="size-8 text-[var(--outline)]" />
+            <p className="text-sm text-[var(--secondary)]">
+              {filteredFolders.length === 0 && normalizedQuery.length === 0 && !hasActiveFileFilters
+                ? 'This folder is empty'
+                : 'No matching files'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {props.showFilesLoadingState || filteredFiles.length > 0 ? (
+        <div ref={loadMoreRef} className="flex justify-center py-5">
+          {props.isLoadingMoreFiles || props.showFilesLoadingState ? (
+            <div className="flex items-center gap-2 text-sm text-[var(--secondary)]">
+              <LoaderCircle className="size-4 animate-spin" />
+              <span>Loading more files</span>
+            </div>
+          ) : props.contents.nextOffset !== null ? (
+            <span className="text-xs text-[var(--secondary)]">Scroll for more</span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   )
 }

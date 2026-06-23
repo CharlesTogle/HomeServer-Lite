@@ -1,7 +1,7 @@
-import { LoaderCircle, LogOut } from 'lucide-react'
-import { startTransition, useEffect, useState } from 'react'
+import { Bookmark, HardDrive, LoaderCircle, Trash2, Users } from 'lucide-react'
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useLogoutMutation } from '../hooks/use-auth.ts'
+import { useSharedStorageUsageQuery, useStorageUsageQuery } from '../hooks/use-auth.ts'
 import {
   useCreateFolderMutation,
   useDeleteItemMutation,
@@ -9,10 +9,9 @@ import {
   useFolderContentsQuery,
   useFolderTreeQuery,
   useMoveItemMutation,
+  useSharedFoldersQuery,
   useUploadFilesMutation,
 } from '../hooks/use-library.ts'
-import { cn } from '../lib/cn.ts'
-import { glassPanelClass, ghostButtonClass, sectionHeadingClass } from '../lib/ui.ts'
 import {
   findFolderNodeById,
   prepareFileDownload,
@@ -27,6 +26,8 @@ import { FolderTree } from './folder-tree.tsx'
 import { LibraryPanel } from './library-panel.tsx'
 import { MediaViewer } from './media-viewer.tsx'
 import { MoveItemModal, type MoveDestinationOption } from './move-item-modal.tsx'
+import { FavoritesPage } from './favorites-page.tsx'
+import { TrashPage } from './trash-page.tsx'
 import { UploadPanel } from './upload-panel.tsx'
 
 interface DeleteTarget {
@@ -76,6 +77,33 @@ function collectDescendantFolderIds(tree: FolderTreeNode, folderId: string): Set
   return new Set<string>()
 }
 
+function collectFolderIds(nodes: FolderTreeNode[]): Set<string> {
+  const folderIds = new Set<string>()
+
+  function visit(node: FolderTreeNode): void {
+    folderIds.add(node.folder.id)
+
+    for (const childNode of node.children) {
+      visit(childNode)
+    }
+  }
+
+  for (const node of nodes) {
+    visit(node)
+  }
+
+  return folderIds
+}
+
+function excludeFoldersFromTree(tree: FolderTreeNode, excludedFolderIds: Set<string>): FolderTreeNode {
+  return {
+    ...tree,
+    children: tree.children
+      .filter((childNode) => !excludedFolderIds.has(childNode.folder.id))
+      .map((childNode) => excludeFoldersFromTree(childNode, excludedFolderIds)),
+  }
+}
+
 function buildMoveDestinationOptions(
   tree: FolderTreeNode,
   target: MoveTarget,
@@ -109,6 +137,80 @@ function findFirstEnabledDestinationId(destinations: MoveDestinationOption[]): s
   return destinations.find((destination) => !destination.disabled)?.id ?? ''
 }
 
+function StorageBar(): React.JSX.Element {
+  const storageQuery = useStorageUsageQuery()
+  const sharedStorageQuery = useSharedStorageUsageQuery()
+
+  function renderUsageRow(
+    label: string,
+    usedBytes: number,
+    quotaBytes: number,
+    icon: React.JSX.Element,
+  ): React.JSX.Element {
+    const usedGB = usedBytes / 1_073_741_824
+    const quotaGB = quotaBytes / 1_073_741_824
+    const ratio = quotaBytes > 0 ? usedBytes / quotaBytes : 0
+    const barColor = ratio > 0.9 ? 'bg-[var(--error)]' : ratio > 0.7 ? 'bg-amber-500' : 'bg-[var(--primary)]'
+
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {icon}
+            <span className="text-xs font-medium text-[var(--secondary)]">{label}</span>
+          </div>
+          <span className="text-xs text-[var(--secondary)]">
+            {usedGB.toFixed(1)} GB / {quotaGB.toFixed(0)} GB
+          </span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-container)]">
+          <div
+            className={`h-full rounded-full transition-all ${barColor}`}
+            style={{ width: `${Math.min(ratio * 100, 100)}%` }}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (storageQuery.isPending) {
+    return (
+      <div className="flex items-center gap-2 px-1 py-2">
+        <LoaderCircle className="size-3.5 animate-spin text-[var(--secondary)]" />
+      </div>
+    )
+  }
+
+  if (storageQuery.error !== null || storageQuery.data === undefined) {
+    return <></>
+  }
+
+  const sharedStorage =
+    sharedStorageQuery.error === null && sharedStorageQuery.data !== undefined && sharedStorageQuery.data.quotaBytes > 0
+      ? sharedStorageQuery.data
+      : null
+
+  return (
+    <div className="space-y-3 px-1">
+      {renderUsageRow(
+        'My Drive',
+        storageQuery.data.usedBytes,
+        storageQuery.data.quotaBytes,
+        <HardDrive className="size-3.5 text-[var(--secondary)]" />,
+      )}
+
+      {sharedStorage === null
+        ? null
+        : renderUsageRow(
+            'Shared',
+            sharedStorage.usedBytes,
+            sharedStorage.quotaBytes,
+            <Users className="size-3.5 text-[var(--secondary)]" />,
+          )}
+    </div>
+  )
+}
+
 function getFolderFromContents(
   folderId: string,
   currentFolder: FolderRecord,
@@ -122,23 +224,75 @@ function getFolderFromContents(
 }
 
 export function HomeShell(): React.JSX.Element {
-  const { selectedFileId, selectedFolderId, setSelectedFileId, setSelectedFolderId } =
+  const {
+    currentPage,
+    libraryExtensionFilter,
+    librarySearchTerm,
+    librarySortDirection,
+    librarySortField,
+    libraryTypeFilter,
+    selectedFileId,
+    selectedFolderId,
+    setCurrentPage,
+    setSelectedFileId,
+    setSelectedFolderId,
+  } =
     useWorkspaceStore(
       useShallow((state) => ({
+        currentPage: state.currentPage,
+        libraryExtensionFilter: state.libraryExtensionFilter,
+        librarySearchTerm: state.librarySearchTerm,
+        librarySortDirection: state.librarySortDirection,
+        librarySortField: state.librarySortField,
+        libraryTypeFilter: state.libraryTypeFilter,
         selectedFileId: state.selectedFileId,
         selectedFolderId: state.selectedFolderId,
+        setCurrentPage: state.setCurrentPage,
         setSelectedFileId: state.setSelectedFileId,
         setSelectedFolderId: state.setSelectedFolderId,
       })),
     )
+  const deferredSearchTerm = useDeferredValue(librarySearchTerm.trim())
+  const folderContentsQueryInput = useMemo(() => ({
+    extensionFilter: libraryExtensionFilter,
+    limit: 60,
+    search: deferredSearchTerm,
+    searchIncludesDirectChildren: deferredSearchTerm.length > 0,
+    sortDirection: librarySortDirection,
+    sortField: librarySortField,
+    typeFilter: libraryTypeFilter,
+  }), [
+    deferredSearchTerm,
+    libraryExtensionFilter,
+    librarySortDirection,
+    librarySortField,
+    libraryTypeFilter,
+  ])
 
   const folderTreeQuery = useFolderTreeQuery()
-  const folderContentsQuery = useFolderContentsQuery(selectedFolderId, folderTreeQuery.data)
+  const sharedFoldersQuery = useSharedFoldersQuery()
+  const sharedFolderNodes = useMemo(
+    () => sharedFoldersQuery.data ?? [],
+    [sharedFoldersQuery.data],
+  )
+  const sharedFolderIds = useMemo(() => collectFolderIds(sharedFolderNodes), [sharedFolderNodes])
+  const myDriveTree = useMemo(
+    () =>
+      folderTreeQuery.data === undefined
+        ? undefined
+        : excludeFoldersFromTree(folderTreeQuery.data, sharedFolderIds),
+    [folderTreeQuery.data, sharedFolderIds],
+  )
+  const folderContentsQuery = useFolderContentsQuery(
+    selectedFolderId,
+    folderTreeQuery.data,
+    folderContentsQueryInput,
+    sharedFolderNodes,
+  )
   const createFolderMutation = useCreateFolderMutation()
   const uploadFilesMutation = useUploadFilesMutation()
   const deleteItemMutation = useDeleteItemMutation()
   const moveItemMutation = useMoveItemMutation()
-  const logoutMutation = useLogoutMutation()
 
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [inspectorTarget, setInspectorTarget] = useState<InspectorTarget | null>(null)
@@ -148,7 +302,6 @@ export function HomeShell(): React.JSX.Element {
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null)
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false)
   const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState<boolean>(false)
-  const [isSignOutModalOpen, setIsSignOutModalOpen] = useState<boolean>(false)
   const [newFolderName, setNewFolderName] = useState<string>('')
 
   useEffect(() => {
@@ -158,13 +311,39 @@ export function HomeShell(): React.JSX.Element {
 
     if (
       selectedFolderId === null ||
-      findFolderNodeById(folderTreeQuery.data, selectedFolderId) === null
+      (findFolderNodeById(folderTreeQuery.data, selectedFolderId) === null &&
+        !sharedFolderIds.has(selectedFolderId))
     ) {
       setSelectedFolderId(folderTreeQuery.data.folder.id)
     }
-  }, [folderTreeQuery.data, selectedFolderId, setSelectedFolderId])
+  }, [folderTreeQuery.data, selectedFolderId, setSelectedFolderId, sharedFolderIds])
 
-  const currentContents = folderContentsQuery.data ?? null
+  const rootFolderId = folderTreeQuery.data?.folder.id ?? null
+  const rawCurrentContents = useMemo(() => {
+    const pages = folderContentsQuery.data?.pages
+    const firstPage = pages?.[0]
+
+    if (pages === undefined || firstPage === undefined) {
+      return null
+    }
+
+    return {
+      ...firstPage,
+      files: pages.flatMap((page) => page.files),
+      nextOffset: pages[pages.length - 1]?.nextOffset ?? null,
+    }
+  }, [folderContentsQuery.data])
+  const currentContents = useMemo(() => {
+    if (rawCurrentContents === null || rawCurrentContents.currentFolder.id !== rootFolderId) {
+      return rawCurrentContents
+    }
+
+    return {
+      ...rawCurrentContents,
+      folders: rawCurrentContents.folders.filter((folder) => !sharedFolderIds.has(folder.id)),
+    }
+  }, [rawCurrentContents, rootFolderId, sharedFolderIds])
+
   const previewFile = currentContents?.files.find((file) => file.id === selectedFileId) ?? null
   const inspectedFile =
     inspectorTarget?.kind === 'file'
@@ -194,9 +373,7 @@ export function HomeShell(): React.JSX.Element {
     moveTarget !== null && folderTreeQuery.data !== undefined
       ? buildMoveDestinationOptions(folderTreeQuery.data, moveTarget)
       : []
-  const hasInspector = inspectedFolder !== null
-  const rootFolderId = folderTreeQuery.data?.folder.id ?? null
-  const isFolderContentsLoading = selectedFolderId === null || folderContentsQuery.isPending
+  const isFolderContentsLoading = selectedFolderId === null || (folderContentsQuery.isPending && currentContents === null)
 
   function resetActionErrors(): void {
     setActionErrorMessage(null)
@@ -209,11 +386,10 @@ export function HomeShell(): React.JSX.Element {
     setDeleteTarget(null)
     setMoveTarget(null)
 
-    startTransition(() => {
-      setSelectedFolderId(folderId)
-      setSelectedFileId(null)
-      setInspectorTarget(null)
-    })
+    setCurrentPage('files')
+    setSelectedFolderId(folderId)
+    setSelectedFileId(null)
+    setInspectorTarget(null)
   }
 
   function handleSelectFile(fileId: string): void {
@@ -450,162 +626,185 @@ export function HomeShell(): React.JSX.Element {
     setIsUploadModalOpen(false)
   }
 
-  async function handleConfirmSignOut(): Promise<void> {
-    await logoutMutation.mutateAsync()
-    setIsSignOutModalOpen(false)
-    setInspectorTarget(null)
-    setMoveTarget(null)
-    setDeleteTarget(null)
-    setActionErrorMessage(null)
-  }
-
   return (
     <>
-      <main className="relative min-h-screen overflow-x-hidden px-4 py-4 sm:px-6 lg:px-8">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_10%,rgba(244,114,182,0.14),transparent_22%),radial-gradient(circle_at_88%_12%,rgba(253,208,234,0.42),transparent_18%),radial-gradient(circle_at_52%_110%,rgba(255,216,231,0.7),transparent_36%)]"
-        />
-
-        <div
-          className={cn(
-            'relative mx-auto grid w-full max-w-[1680px] gap-4 xl:min-h-[calc(100svh-2rem)]',
-            hasInspector
-              ? 'xl:grid-cols-[280px_minmax(0,1fr)_380px] 2xl:grid-cols-[300px_minmax(0,1fr)_400px]'
-              : 'xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[300px_minmax(0,1fr)]',
-          )}
-        >
-          <aside className="flex flex-col gap-4 xl:min-h-0">
-            <section className={cn(glassPanelClass, 'flex min-h-[280px] flex-col p-4 xl:min-h-0')}>
-              <div className="space-y-1 px-1 pb-3">
-                <p className={sectionHeadingClass}>Folder atlas</p>
-                <p className="text-sm text-[color:var(--on-surface-variant)]">Library structure</p>
+      <div className="flex min-h-0 flex-1">
+        <aside className="hidden w-60 shrink-0 border-r border-[var(--outline-variant)] bg-[var(--surface)] lg:flex lg:flex-col">
+          <div className="flex-1 overflow-y-auto px-3 py-3">
+            <section className="rounded-2xl border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_80%,transparent)] px-2 py-2">
+              <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--outline)]">
+                My Drive
               </div>
 
               {folderTreeQuery.isPending ? (
-                <div className="flex flex-1 items-center justify-center px-4 text-center">
-                  <div className="space-y-2">
-                    <LoaderCircle className="mx-auto size-5 animate-spin text-[color:var(--primary)]" />
-                    <p className="text-sm text-[color:var(--on-surface-variant)]">
-                      Loading folders…
-                    </p>
-                  </div>
+                <div className="flex items-center justify-center py-8">
+                  <LoaderCircle className="size-4 animate-spin text-[var(--primary)]" />
                 </div>
               ) : null}
 
               {folderTreeQuery.error !== null ? (
-                <div
-                  className="rounded-[22px] border border-[color:var(--error-container)] bg-[color:var(--error-container)] px-4 py-3 text-sm text-[color:var(--on-error-container)]"
-                  role="alert"
-                >
+                <div className="rounded-lg border border-[var(--error-container)] bg-[var(--error-container)] px-3 py-2 text-xs text-[var(--on-error-container)]">
                   {folderTreeQuery.error.message}
                 </div>
               ) : null}
 
-              {folderTreeQuery.data !== undefined && selectedFolderId !== null ? (
-                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <FolderTree
-                    tree={folderTreeQuery.data}
-                    selectedFolderId={selectedFolderId}
-                    onSelectFolder={handleOpenFolder}
-                  />
-                </div>
+              {myDriveTree !== undefined && selectedFolderId !== null ? (
+                <FolderTree
+                  tree={myDriveTree}
+                  rootLabel="My Drive"
+                  selectedFolderId={selectedFolderId}
+                  onSelectFolder={handleOpenFolder}
+                />
               ) : null}
+            </section>
 
-              <div className="mt-4 border-t border-[rgba(218,192,201,0.54)] pt-4">
+            <section className="mt-5">
+              <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--outline)]">
+                Shared
+              </div>
+
+              <div className="space-y-0.5">
+                {sharedFolderNodes.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-[var(--secondary)]">No shared folders</div>
+                ) : (
+                  sharedFolderNodes.map((node) => (
+                    <div
+                      key={node.folder.id}
+                      className="rounded-2xl border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_72%,transparent)] px-2 py-2"
+                    >
+                      <FolderTree
+                        tree={node}
+                        selectedFolderId={selectedFolderId ?? ''}
+                        onSelectFolder={handleOpenFolder}
+                      />
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section className="mt-5 border-t border-[var(--outline-variant)] pt-4">
+              <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--outline)]">
+                Library
+              </div>
+
+              <div className="space-y-0.5">
                 <button
-                  className={cn(ghostButtonClass, 'w-full justify-center')}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-[var(--surface-container-low)] ${
+                    currentPage === 'favorites'
+                      ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]'
+                      : 'text-[var(--on-surface)]'
+                  }`}
                   type="button"
-                  onClick={() => setIsSignOutModalOpen(true)}
+                  onClick={() => setCurrentPage('favorites')}
                 >
-                  <LogOut className="size-4" />
-                  Sign out
+                  <Bookmark className="size-4 shrink-0 text-[var(--secondary)]" />
+                  <span>Favorites</span>
+                </button>
+
+                <button
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-[var(--surface-container-low)] ${
+                    currentPage === 'trash'
+                      ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]'
+                      : 'text-[var(--on-surface)]'
+                  }`}
+                  type="button"
+                  onClick={() => setCurrentPage('trash')}
+                >
+                  <Trash2 className="size-4 shrink-0 text-[var(--secondary)]" />
+                  <span>Trash</span>
                 </button>
               </div>
             </section>
-          </aside>
+          </div>
 
-          <section className="flex min-w-0 flex-col gap-4 xl:min-h-0">
-            {isFolderContentsLoading ? (
-              <section className={cn(glassPanelClass, 'flex min-h-[220px] items-center justify-center p-5')}>
-                <div className="space-y-2 text-center">
-                  <LoaderCircle className="mx-auto size-5 animate-spin text-[color:var(--primary)]" />
-                  <p className="text-sm text-[color:var(--on-surface-variant)]">
-                    Loading folder contents…
-                  </p>
-                </div>
-              </section>
-            ) : null}
+          <div className="border-t border-[var(--outline-variant)] p-3">
+            <StorageBar />
+          </div>
+        </aside>
 
-            {folderContentsQuery.error !== null ? (
-              <section className={cn(glassPanelClass, 'p-5')}>
-                <div
-                  className="rounded-[22px] border border-[color:var(--error-container)] bg-[color:var(--error-container)] px-4 py-3 text-sm text-[color:var(--on-error-container)]"
-                  role="alert"
-                >
-                  {folderContentsQuery.error.message}
-                </div>
-              </section>
-            ) : null}
+        <main className="flex min-w-0 flex-1 flex-col">
+          {currentPage === 'favorites' ? (
+            <FavoritesPage />
+          ) : currentPage === 'trash' ? (
+            <TrashPage />
+          ) : isFolderContentsLoading ? (
+            <div className="flex flex-1 items-center justify-center p-8">
+              <div className="flex flex-col items-center gap-2">
+                <LoaderCircle className="size-5 animate-spin text-[var(--primary)]" />
+                <p className="text-sm text-[var(--secondary)]">Loading...</p>
+              </div>
+            </div>
+          ) : null}
 
-            {actionErrorMessage !== null ? (
-              <section className={cn(glassPanelClass, 'p-5')}>
-                <div
-                  className="rounded-[22px] border border-[color:var(--error-container)] bg-[color:var(--error-container)] px-4 py-3 text-sm text-[color:var(--on-error-container)]"
-                  role="alert"
-                >
-                  {actionErrorMessage}
-                </div>
-              </section>
-            ) : null}
+          {currentPage === 'files' && folderContentsQuery.error !== null ? (
+            <div className="p-6">
+              <div className="rounded-lg border border-[var(--error-container)] bg-[var(--error-container)] px-4 py-3 text-sm text-[var(--on-error-container)]">
+                {folderContentsQuery.error.message}
+              </div>
+            </div>
+          ) : null}
 
-            {currentContents !== null ? (
-              <LibraryPanel
-                busyItemId={busyItemId}
-                contents={currentContents}
-                inspectedFolderId={inspectedFolder?.id ?? null}
-                selectedFileId={activeInspectorFile?.id ?? selectedFileId}
-                onOpenCreateFolder={handleOpenCreateFolderModal}
-                onOpenUpload={() => setIsUploadModalOpen(true)}
-                onOpenFolder={handleOpenFolder}
-                onRequestDeleteFolder={handleRequestDeleteFolder}
-                onRequestDeleteFile={handleRequestDeleteFile}
-                onRequestDownloadFolder={(folder) => {
-                  void handleRequestDownloadFolder(folder)
-                }}
-                onRequestDownloadFile={(file) => {
-                  void handleRequestDownloadFile(file)
-                }}
-                onRequestMoveFolder={handleRequestMoveFolder}
-                onRequestMoveFile={handleRequestMoveFile}
-                onRequestShowFolderProperties={handleRequestShowFolderProperties}
-                onRequestShowFileProperties={handleRequestShowFileProperties}
-                onSelectFile={handleSelectFile}
-              />
-            ) : null}
-          </section>
+          {currentPage === 'files' && actionErrorMessage !== null ? (
+            <div className="p-6">
+              <div className="rounded-lg border border-[var(--error-container)] bg-[var(--error-container)] px-4 py-3 text-sm text-[var(--on-error-container)]">
+                {actionErrorMessage}
+              </div>
+            </div>
+          ) : null}
+
+          {currentPage === 'files' && currentContents !== null ? (
+            <LibraryPanel
+              busyItemId={busyItemId}
+              contents={currentContents}
+              inspectedFolderId={inspectedFolder?.id ?? null}
+              isLoadingMoreFiles={folderContentsQuery.isFetchingNextPage}
+              isSearchingSubfolders={folderContentsQueryInput.searchIncludesDirectChildren}
+              onLoadMoreFiles={() => {
+                if (folderContentsQuery.hasNextPage) {
+                  void folderContentsQuery.fetchNextPage()
+                }
+              }}
+              selectedFileId={activeInspectorFile?.id ?? selectedFileId}
+              showFilesLoadingState={folderContentsQuery.isFetching && currentContents.files.length === 0}
+              onOpenCreateFolder={handleOpenCreateFolderModal}
+              onOpenUpload={() => setIsUploadModalOpen(true)}
+              onOpenFolder={handleOpenFolder}
+              onRequestDeleteFolder={handleRequestDeleteFolder}
+              onRequestDeleteFile={handleRequestDeleteFile}
+              onRequestDownloadFolder={(folder) => {
+                void handleRequestDownloadFolder(folder)
+              }}
+              onRequestDownloadFile={(file) => {
+                void handleRequestDownloadFile(file)
+              }}
+              onRequestMoveFolder={handleRequestMoveFolder}
+              onRequestMoveFile={handleRequestMoveFile}
+              onRequestShowFolderProperties={handleRequestShowFolderProperties}
+              onRequestShowFileProperties={handleRequestShowFileProperties}
+              onSelectFile={handleSelectFile}
+            />
+          ) : null}
 
           {inspectedFolder !== null ? (
-            <aside className="min-w-0 xl:self-start">
-              <MediaViewer
-                currentFolderName={currentContents?.currentFolder.name ?? null}
-                inspectedFolder={inspectedFolder}
-                isPreviewLoading={false}
-                mode="properties"
-                previewErrorMessage={null}
-                previewUrl={null}
-                selectedFile={null}
-                onClose={() => {
-                  startTransition(() => {
-                    setSelectedFileId(null)
-                    setInspectorTarget(null)
-                  })
-                }}
-              />
-            </aside>
+            <MediaViewer
+              currentFolderName={currentContents?.currentFolder.name ?? null}
+              inspectedFolder={inspectedFolder}
+              isPreviewLoading={false}
+              mode="properties"
+              previewErrorMessage={null}
+              previewUrl={null}
+              selectedFile={null}
+              onClose={() => {
+                startTransition(() => {
+                  setSelectedFileId(null)
+                  setInspectorTarget(null)
+                })
+              }}
+            />
           ) : null}
-        </div>
-      </main>
+        </main>
+      </div>
 
       {activeInspectorFile !== null ? (
         <MediaViewer
@@ -628,6 +827,7 @@ export function HomeShell(): React.JSX.Element {
       {currentContents !== null && isUploadModalOpen ? (
         <UploadPanel
           currentFolderName={currentContents.currentFolder.name}
+          existingFileNames={currentContents.existingFileNames}
           errorMessage={uploadFilesMutation.error?.message ?? null}
           isPending={uploadFilesMutation.isPending}
           onClose={() => setIsUploadModalOpen(false)}
@@ -674,12 +874,12 @@ export function HomeShell(): React.JSX.Element {
         open={deleteTarget !== null}
         title={
           deleteTarget?.kind === 'folder'
-            ? `Delete folder “${deleteTarget.name}”?`
-            : `Delete file “${deleteTarget?.name ?? ''}”?`
+            ? `Delete folder "${deleteTarget.name}"?`
+            : `Delete file "${deleteTarget?.name ?? ''}"?`
         }
         description={
           deleteTarget?.kind === 'folder'
-            ? 'This will remove the folder and any nested files or folders from the backend after confirmation.'
+            ? 'This will remove the folder and any nested files or folders from the backend.'
             : 'This removes the file from the backend and the current library view.'
         }
         confirmLabel={deleteTarget?.kind === 'folder' ? 'Delete folder' : 'Delete file'}
@@ -690,21 +890,6 @@ export function HomeShell(): React.JSX.Element {
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => {
           void handleConfirmDelete()
-        }}
-      />
-
-      <ConfirmationModal
-        open={isSignOutModalOpen}
-        title="Sign out?"
-        description="This clears the in-memory access token and falls back to the refresh cookie flow on the next load."
-        confirmLabel="Sign out"
-        cancelLabel="Stay signed in"
-        tone="neutral"
-        isPending={logoutMutation.isPending}
-        errorMessage={logoutMutation.error?.message ?? null}
-        onCancel={() => setIsSignOutModalOpen(false)}
-        onConfirm={() => {
-          void handleConfirmSignOut()
         }}
       />
     </>

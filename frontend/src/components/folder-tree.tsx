@@ -6,6 +6,8 @@ import type { FolderTreeNode } from '../types/library.ts'
 interface FolderTreeProps {
   tree: FolderTreeNode
   selectedFolderId: string
+  rootLabel?: string
+  showRoot?: boolean
   onSelectFolder: (folderId: string) => void
 }
 
@@ -13,6 +15,7 @@ interface FolderTreeBranchProps {
   node: FolderTreeNode
   collapsedFolderIds: Set<string>
   depth: number
+  rootLabel?: string
   selectedPathIds: Set<string>
   selectedFolderId: string
   onToggleFolder: (folderId: string) => void
@@ -40,96 +43,68 @@ function FolderTreeBranch(props: FolderTreeBranchProps): React.JSX.Element {
   const isActive = props.node.folder.id === props.selectedFolderId
   const hasChildren = props.node.children.length > 0
   const isExpanded =
-    hasChildren &&
-    (!props.collapsedFolderIds.has(props.node.folder.id) ||
-      (!isRoot && props.selectedPathIds.has(props.node.folder.id)))
+    isRoot ||
+    (hasChildren &&
+      (!props.collapsedFolderIds.has(props.node.folder.id) ||
+        props.selectedPathIds.has(props.node.folder.id)))
 
   return (
-    <div className="space-y-0.5">
+    <div>
       <div
         className={cn(
-          'relative',
-          isRoot
-            ? 'sticky top-0 z-20 mb-2 bg-[linear-gradient(180deg,rgba(251,249,247,0.97),rgba(251,249,247,0.94)_78%,transparent)] pb-2 backdrop-blur-sm'
-            : '',
+          'flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition-colors',
+          isRoot ? 'font-semibold' : '',
+          isActive
+            ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]'
+            : 'text-[var(--on-surface)] hover:bg-[var(--surface-container-low)]',
         )}
+        style={{ paddingLeft: `${isRoot ? 8 : 8 + props.depth * 20}px` }}
       >
-        {props.depth > 0 ? (
-          <div
-            aria-hidden="true"
-            className="absolute bottom-2 left-0 top-2 w-px rounded-full bg-[rgba(164,48,115,0.08)]"
-            style={{ left: `${props.depth * 16}px` }}
-          />
-        ) : null}
-
-        <div
-          className={cn(
-            'flex items-center justify-between gap-3 rounded-[18px] px-2 py-1.5 transition duration-200',
-            isActive
-              ? 'bg-[rgba(244,114,182,0.12)] text-[color:var(--primary)]'
-              : 'text-[color:var(--secondary)] hover:bg-white/55',
-            isRoot ? 'shadow-[0_10px_24px_rgba(164,48,115,0.08)]' : '',
-          )}
-          style={{ paddingInlineStart: `${8 + props.depth * 16}px` }}
+        <button
+          aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          className="flex size-5 shrink-0 items-center justify-center rounded-md text-[var(--secondary)] hover:bg-[var(--surface-container)]"
+          type="button"
+          onClick={() => props.onToggleFolder(props.node.folder.id)}
+          tabIndex={hasChildren && !isRoot ? 0 : -1}
+          style={{ visibility: hasChildren && !isRoot ? 'visible' : 'hidden' }}
         >
-          <div className="flex min-w-0 items-center gap-2">
-            {hasChildren ? (
-              <button
-                aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
-                className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-current"
-                type="button"
-                onClick={() => props.onToggleFolder(props.node.folder.id)}
-              >
-                {isExpanded ? (
-                  <ChevronDown className="size-4 shrink-0" />
-                ) : (
-                  <ChevronRight className="size-4 shrink-0" />
-                )}
-              </button>
-            ) : (
-              <span aria-hidden="true" className="block size-5 shrink-0" />
-            )}
+          {isExpanded ? (
+            <ChevronDown className="size-3.5" />
+          ) : (
+            <ChevronRight className="size-3.5" />
+          )}
+        </button>
 
-            <button
-              aria-current={isActive ? 'page' : undefined}
-              className="flex min-w-0 items-center gap-2 text-left"
-              type="button"
-              onClick={() => props.onSelectFolder(props.node.folder.id)}
-            >
-              <span
-                className={cn(
-                  'inline-flex size-7 shrink-0 items-center justify-center rounded-[14px]',
-                  isActive
-                    ? 'bg-white/82 text-[color:var(--primary)]'
-                    : 'bg-transparent text-[color:var(--secondary)]',
-                )}
-              >
-                {isActive ? (
-                  <FolderOpen className="size-4 shrink-0" />
-                ) : (
-                  <Folder className="size-4 shrink-0" />
-                )}
-              </span>
-              <span className="truncate text-sm font-medium text-[color:var(--on-surface)]">
-                {props.node.folder.name}
-              </span>
-            </button>
-          </div>
-
-          <span className="min-w-6 text-right text-xs font-semibold text-[color:var(--secondary)]">
-            {props.node.folder.itemCount}
+        <button
+          aria-current={isActive ? 'page' : undefined}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          type="button"
+          onClick={() => props.onSelectFolder(props.node.folder.id)}
+        >
+          {isActive ? (
+            <FolderOpen className="size-4 shrink-0 text-[var(--primary)]" />
+          ) : (
+            <Folder className="size-4 shrink-0 text-[var(--secondary)]" />
+          )}
+          <span className="truncate text-sm font-medium">
+            {isRoot ? (props.rootLabel ?? props.node.folder.name) : props.node.folder.name}
           </span>
-        </div>
+        </button>
+
+        {!isRoot ? (
+          <span className="shrink-0 text-xs text-[var(--outline)]">{props.node.folder.itemCount}</span>
+        ) : null}
       </div>
 
       {hasChildren && isExpanded ? (
-        <div className="space-y-0.5">
+        <div>
           {props.node.children.map((childNode) => (
             <FolderTreeBranch
               key={childNode.folder.id}
               node={childNode}
               collapsedFolderIds={props.collapsedFolderIds}
               depth={props.depth + 1}
+              rootLabel={props.rootLabel}
               selectedPathIds={props.selectedPathIds}
               selectedFolderId={props.selectedFolderId}
               onToggleFolder={props.onToggleFolder}
@@ -162,15 +137,32 @@ export function FolderTree(props: FolderTreeProps): React.JSX.Element {
 
   return (
     <div className="space-y-0.5">
-      <FolderTreeBranch
-        node={props.tree}
-        collapsedFolderIds={collapsedFolderIds}
-        depth={0}
-        selectedPathIds={selectedPathIds}
-        selectedFolderId={props.selectedFolderId}
-        onToggleFolder={handleToggleFolder}
-        onSelectFolder={props.onSelectFolder}
-      />
+      {props.showRoot === false
+        ? props.tree.children.map((childNode) => (
+            <FolderTreeBranch
+              key={childNode.folder.id}
+              node={childNode}
+              collapsedFolderIds={collapsedFolderIds}
+              depth={1}
+              rootLabel={props.rootLabel}
+              selectedPathIds={selectedPathIds}
+              selectedFolderId={props.selectedFolderId}
+              onToggleFolder={handleToggleFolder}
+              onSelectFolder={props.onSelectFolder}
+            />
+          ))
+        : (
+            <FolderTreeBranch
+              node={props.tree}
+              collapsedFolderIds={collapsedFolderIds}
+              depth={0}
+              rootLabel={props.rootLabel}
+              selectedPathIds={selectedPathIds}
+              selectedFolderId={props.selectedFolderId}
+              onToggleFolder={handleToggleFolder}
+              onSelectFolder={props.onSelectFolder}
+            />
+          )}
     </div>
   )
 }

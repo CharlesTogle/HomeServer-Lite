@@ -1,14 +1,23 @@
-import { FileText, Image, Info, LoaderCircle, Music, Video, X } from 'lucide-react'
-import { cn } from '../lib/cn.ts'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
-  chipClass,
-  darkPanelClass,
-  glassPanelClass,
-  iconButtonClass,
-  pillClass,
-  sectionSubtextClass,
-  softCardClass,
-} from '../lib/ui.ts'
+  Code,
+  FileText,
+  Info,
+  LoaderCircle,
+  Maximize,
+  Minus,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Save,
+  Sidebar,
+  X,
+} from 'lucide-react'
+import { useEffect, useRef, useState, type WheelEvent } from 'react'
+import { apiResponse } from '../services/api-client.ts'
+import { iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui.ts'
+import { useUpdateFileContentMutation } from '../hooks/use-library.ts'
 import type { FileRecord, FolderRecord } from '../types/library.ts'
 import {
   formatBytes,
@@ -30,19 +39,433 @@ interface MediaViewerProps {
 
 const emptyCaptionTrack = 'data:text/vtt;charset=UTF-8,WEBVTT'
 
+function DocumentViewer(props: { file: FileRecord }): React.JSX.Element {
+  const [content, setContent] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [loadKey, setLoadKey] = useState(0)
+  const updateMutation = useUpdateFileContentMutation()
+
+  const isMarkdown = props.file.mimeType === 'text/markdown'
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchText(): Promise<void> {
+      setError(null)
+      try {
+        const response = await apiResponse(`/api/files/${props.file.id}/text`)
+
+        if (cancelled) return
+
+        if (!response.ok) {
+          if (response.status === 400) {
+            setContent(null)
+            return
+          }
+          throw new Error(`Failed to load preview (${response.status})`)
+        }
+
+        const text = await response.text()
+
+        if (!cancelled) {
+          setContent(text)
+        }
+      } catch (err) {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : 'Failed to load text preview')
+      }
+    }
+
+    void fetchText()
+
+    return () => {
+      cancelled = true
+    }
+  }, [props.file.id, loadKey])
+
+  async function handleSave(): Promise<void> {
+    await updateMutation.mutateAsync({
+      fileId: props.file.id,
+      content: editContent,
+    })
+    setIsEditing(false)
+    setLoadKey((prev) => prev + 1)
+  }
+
+  function handleCancelEdit(): void {
+    setIsEditing(false)
+    setEditContent('')
+  }
+
+  function handleStartEdit(): void {
+    setEditContent(content ?? '')
+    setIsEditing(true)
+  }
+
+  if (error !== null) {
+    return (
+      <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] bg-[var(--surface-container-low)] p-6 text-center">
+        <div className="space-y-2">
+          <FileText className="mx-auto size-5 text-[var(--secondary)]" />
+          <p className="text-sm text-[var(--secondary)]">{error}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (props.file.mimeType === 'application/pdf') {
+    return (
+      <iframe
+        src={`/api/files/${props.file.id}/download`}
+        title={props.file.name}
+        className="h-[480px] w-full rounded-lg"
+      />
+    )
+  }
+
+  if (content === null) {
+    return (
+      <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] bg-[var(--surface-container-low)] p-6 text-center">
+        <div className="space-y-2">
+          <Code className="mx-auto size-5 text-[var(--secondary)]" />
+          <p className="text-sm font-medium text-[var(--on-surface)]">{props.file.name}</p>
+          <p className="text-sm text-[var(--secondary)]">No inline text preview available.</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (isEditing && isMarkdown) {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-end gap-2">
+          <button
+            className={secondaryButtonClass}
+            type="button"
+            onClick={handleCancelEdit}
+            disabled={updateMutation.isPending}
+          >
+            Cancel
+          </button>
+          <button
+            className={primaryButtonClass}
+            type="button"
+            onClick={handleSave}
+            disabled={updateMutation.isPending}
+          >
+            {updateMutation.isPending ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Save className="size-4" />
+            )}
+            Save
+          </button>
+        </div>
+        <textarea
+          aria-label="Edit markdown content"
+          className="max-h-[480px] min-h-[300px] w-full resize-y rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 font-mono text-sm leading-relaxed text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+          value={editContent}
+          onChange={(event) => setEditContent(event.target.value)}
+          spellCheck={false}
+        />
+      </div>
+    )
+  }
+
+  if (isMarkdown) {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-end">
+          <button
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--secondary)] transition-colors hover:bg-[var(--surface-container-low)]"
+            type="button"
+            onClick={handleStartEdit}
+          >
+            <Pencil className="size-3.5" />
+            Edit
+          </button>
+        </div>
+        <div className="max-h-[440px] w-full overflow-auto rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4 text-sm leading-relaxed text-[var(--on-surface)]">
+          <div className="markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <pre className="max-h-[480px] w-full overflow-auto rounded-lg bg-[var(--inverse-surface)] p-4 text-sm leading-relaxed text-[var(--inverse-on-surface)]">
+      <code>{content}</code>
+    </pre>
+  )
+}
+
+function ImageViewer(props: { src: string; alt: string }): React.JSX.Element {
+  const [zoom, setZoom] = useState(1)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const [imageLoaded, setImageLoaded] = useState(false)
+  const [naturalDims, setNaturalDims] = useState<{ w: number; h: number } | null>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
+
+  const ZOOM_STEP = 0.25
+  const MIN_ZOOM = 0.25
+  const MAX_ZOOM = 10
+
+  function handleWheel(event: WheelEvent): void {
+    if (!event.ctrlKey && !event.metaKey) return
+    event.preventDefault()
+    const delta = event.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
+    setZoom((prev) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev + delta)))
+  }
+
+  function zoomIn(): void {
+    setZoom((prev) => Math.min(MAX_ZOOM, prev + ZOOM_STEP))
+  }
+
+  function zoomOut(): void {
+    setZoom((prev) => Math.max(MIN_ZOOM, prev - ZOOM_STEP))
+  }
+
+  function resetZoom(): void {
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+  }
+
+  function handleMouseDown(event: React.MouseEvent): void {
+    if (zoom <= 1) return
+    event.preventDefault()
+    setIsDragging(true)
+    setDragStart({ x: event.clientX - offset.x, y: event.clientY - offset.y })
+  }
+
+  function handleMouseMove(event: React.MouseEvent): void {
+    if (!isDragging || zoom <= 1) return
+    setOffset({ x: event.clientX - dragStart.x, y: event.clientY - dragStart.y })
+  }
+
+  function handleMouseUp(): void {
+    setIsDragging(false)
+  }
+
+  const zoomPercent = Math.round(zoom * 100)
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] px-3 py-1.5">
+        <div className="flex items-center gap-1">
+          <button
+            aria-label="Zoom out"
+            className="inline-flex size-7 items-center justify-center rounded-md text-[var(--secondary)] transition-colors hover:bg-[var(--surface-container-low)] disabled:opacity-30"
+            type="button"
+            onClick={zoomOut}
+            disabled={zoom <= MIN_ZOOM}
+          >
+            <Minus className="size-3.5" />
+          </button>
+          <span className="w-14 text-center text-xs font-medium text-[var(--on-surface)] select-none">
+            {zoomPercent}%
+          </span>
+          <button
+            aria-label="Zoom in"
+            className="inline-flex size-7 items-center justify-center rounded-md text-[var(--secondary)] transition-colors hover:bg-[var(--surface-container-low)] disabled:opacity-30"
+            type="button"
+            onClick={zoomIn}
+            disabled={zoom >= MAX_ZOOM}
+          >
+            <Plus className="size-3.5" />
+          </button>
+          <span className="mx-1 h-4 w-px bg-[var(--outline-variant)]" />
+          <button
+            aria-label="Reset zoom"
+            className="inline-flex size-7 items-center justify-center rounded-md text-[var(--secondary)] transition-colors hover:bg-[var(--surface-container-low)]"
+            type="button"
+            onClick={resetZoom}
+          >
+            <RotateCcw className="size-3.5" />
+          </button>
+        </div>
+          {!imageLoaded ? (
+            <LoaderCircle className="size-3.5 animate-spin text-[var(--primary)]" />
+          ) : (
+            <span className="text-xs text-[var(--outline)]">
+              {naturalDims !== null ? `${naturalDims.w} × ${naturalDims.h}` : ''}
+            </span>
+          )}
+      </div>
+
+      <div
+        className="relative flex max-h-[480px] min-h-[240px] items-start justify-center overflow-hidden rounded-lg bg-[var(--surface-container)]"
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+      >
+        <img
+          ref={imgRef}
+          src={props.src}
+          alt={props.alt}
+          onLoad={(event) => {
+            setImageLoaded(true)
+            const img = event.currentTarget
+            setNaturalDims({ w: img.naturalWidth, h: img.naturalHeight })
+          }}
+          className="max-w-full transition-transform duration-100"
+          style={{
+            transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+            transformOrigin: '0 0',
+            margin: zoom <= 1 ? 'auto' : undefined,
+          }}
+          draggable={false}
+        />
+      </div>
+    </div>
+  )
+}
+
+function ImageFullscreen(props: {
+  src: string
+  alt: string
+  onClose: () => void
+}): React.JSX.Element {
+  const [zoom, setZoom] = useState(1)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+
+  const ZOOM_STEP = 0.25
+  const MIN_ZOOM = 0.25
+  const MAX_ZOOM = 10
+
+  function handleWheel(event: WheelEvent): void {
+    if (!event.ctrlKey && !event.metaKey) return
+    event.preventDefault()
+    const delta = event.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
+    setZoom((prev) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev + delta)))
+  }
+
+  function handleMouseDown(event: React.MouseEvent): void {
+    if (zoom <= 1) return
+    event.preventDefault()
+    setIsDragging(true)
+    setDragStart({ x: event.clientX - offset.x, y: event.clientY - offset.y })
+  }
+
+  function handleMouseMove(event: React.MouseEvent): void {
+    if (!isDragging || zoom <= 1) return
+    setOffset({ x: event.clientX - dragStart.x, y: event.clientY - dragStart.y })
+  }
+
+  function handleMouseUp(): void {
+    setIsDragging(false)
+  }
+
+  const zoomPercent = Math.round(zoom * 100)
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex flex-col bg-black"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') props.onClose()
+      }}
+      tabIndex={0}
+    >
+      <div className="flex items-center justify-between bg-black/60 px-4 py-2">
+        <div className="flex items-center gap-2">
+          <button
+            aria-label="Zoom out"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 disabled:opacity-30"
+            type="button"
+            onClick={() => setZoom((p) => Math.max(MIN_ZOOM, p - ZOOM_STEP))}
+            disabled={zoom <= MIN_ZOOM}
+          >
+            <Minus className="size-4" />
+          </button>
+          <span className="w-14 text-center text-xs font-medium text-white/80 select-none">
+            {zoomPercent}%
+          </span>
+          <button
+            aria-label="Zoom in"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 disabled:opacity-30"
+            type="button"
+            onClick={() => setZoom((p) => Math.min(MAX_ZOOM, p + ZOOM_STEP))}
+            disabled={zoom >= MAX_ZOOM}
+          >
+            <Plus className="size-4" />
+          </button>
+          <button
+            aria-label="Reset zoom"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10"
+            type="button"
+            onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }) }}
+          >
+            <RotateCcw className="size-4" />
+          </button>
+        </div>
+
+        <p className="truncate px-4 text-sm font-medium text-white/80">{props.alt}</p>
+
+        <button
+          aria-label="Exit fullscreen"
+          className="inline-flex size-8 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10"
+          type="button"
+          onClick={props.onClose}
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      <div
+        className="flex flex-1 items-start justify-center overflow-hidden"
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+      >
+        <img
+          src={props.src}
+          alt={props.alt}
+          className="max-w-full select-none"
+          style={{
+            transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+            transformOrigin: '0 0',
+            margin: zoom <= 1 ? 'auto' : undefined,
+            alignSelf: zoom <= 1 ? 'center' : undefined,
+          }}
+          draggable={false}
+        />
+      </div>
+    </div>
+  )
+}
+
 function ViewerStage(props: {
   file: FileRecord
   isPreviewLoading: boolean
   previewErrorMessage: string | null
   previewUrl: string | null
+  isFullscreen: boolean
+  onToggleFullscreen: () => void
+  isSpan: boolean
+  onToggleSpan: () => void
 }): React.JSX.Element {
+  const showToolbar = props.file.mediaKind === 'image' && props.previewUrl !== null
+
   if (props.previewErrorMessage !== null) {
     return (
-      <div className="flex min-h-[240px] items-center justify-center rounded-[24px] border border-dashed border-white/18 bg-white/8 p-6 text-center text-white/76">
-        <div className="space-y-3">
-          <FileText className="mx-auto size-6 text-[color:var(--inverse-primary)]" />
-          <h3 className="text-lg font-semibold text-white">{props.file.name}</h3>
-          <p className="max-w-[32ch] text-sm leading-6">{props.previewErrorMessage}</p>
+      <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] bg-[var(--surface-container-low)] p-6 text-center">
+        <div className="space-y-2">
+          <FileText className="mx-auto size-5 text-[var(--secondary)]" />
+          <p className="text-sm font-medium text-[var(--on-surface)]">{props.file.name}</p>
+          <p className="text-sm text-[var(--secondary)]">{props.previewErrorMessage}</p>
         </div>
       </div>
     )
@@ -50,171 +473,169 @@ function ViewerStage(props: {
 
   if (props.isPreviewLoading) {
     return (
-      <div className="flex min-h-[240px] items-center justify-center rounded-[24px] border border-dashed border-white/18 bg-white/8 p-6 text-center text-white/76">
-        <div className="space-y-3">
-          <LoaderCircle className="mx-auto size-6 animate-spin text-[color:var(--inverse-primary)]" />
-          <h3 className="text-lg font-semibold text-white">Preparing preview</h3>
-          <p className="max-w-[32ch] text-sm leading-6">
-            Fetching the protected media bytes from the backend.
-          </p>
+      <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] bg-[var(--surface-container-low)] p-6 text-center">
+        <div className="space-y-2">
+          <LoaderCircle className="mx-auto size-5 animate-spin text-[var(--primary)]" />
+          <p className="text-sm text-[var(--secondary)]">Loading preview...</p>
         </div>
       </div>
     )
   }
 
-  switch (props.file.mediaKind) {
-    case 'image':
-      if (props.previewUrl !== null) {
-        return (
-          <img
-            src={props.previewUrl}
-            alt={`Preview of ${props.file.name}`}
-            className="max-h-[360px] w-full rounded-[24px] object-cover"
-          />
-        )
-      }
-      break
-    case 'audio':
-      if (props.previewUrl !== null) {
-        return (
-          <audio
-            controls
-            aria-label={`Audio preview for ${props.file.name}`}
-            className="w-full"
-            src={props.previewUrl}
-          >
-            <track
-              kind="captions"
-              label="No captions available"
-              src={emptyCaptionTrack}
-              srcLang="en"
-            />
-          </audio>
-        )
-      }
-      break
-    case 'video':
-      if (props.previewUrl !== null) {
-        return (
-          <video
-            controls
-            playsInline
-            aria-label={`Video preview for ${props.file.name}`}
-            className="max-h-[360px] w-full rounded-[24px] object-cover"
-          >
-            <source src={props.previewUrl} type={props.file.mimeType} />
-            <track
-              kind="captions"
-              label="No captions available"
-              src={emptyCaptionTrack}
-              srcLang="en"
-            />
-          </video>
-        )
-      }
-      break
-    default:
-      break
-  }
-
   return (
-    <div className="flex min-h-[240px] items-center justify-center rounded-[24px] border border-dashed border-white/18 bg-white/8 p-6 text-center text-white/76">
-      <div className="space-y-3">
-        {props.file.mediaKind === 'video' ? (
-          <Video className="mx-auto size-6 text-[color:var(--inverse-primary)]" />
-        ) : (
-          <FileText className="mx-auto size-6 text-[color:var(--inverse-primary)]" />
-        )}
-        <h3 className="text-lg font-semibold text-white">{props.file.name}</h3>
-        <p className="max-w-[28ch] text-sm leading-6">
-          {props.file.mediaKind === 'video'
-            ? 'Video playback will appear here after the preview bytes finish loading.'
-            : 'This file type does not expose an inline preview yet, but download works.'}
-        </p>
-      </div>
-    </div>
-  )
-}
+    <div className="space-y-3">
+      {showToolbar ? (
+        <div className="flex items-center justify-end gap-1">
+          <button
+            aria-label={props.isSpan ? 'Show details' : 'Hide details'}
+            className={`inline-flex size-7 items-center justify-center rounded-md text-[var(--secondary)] transition-colors hover:bg-[var(--surface-container-low)] ${
+              props.isSpan ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] text-[var(--primary)]' : ''
+            }`}
+            type="button"
+            onClick={props.onToggleSpan}
+          >
+            <Sidebar className="size-3.5" />
+          </button>
+          <button
+            aria-label="Open fullscreen"
+            className="inline-flex size-7 items-center justify-center rounded-md text-[var(--secondary)] transition-colors hover:bg-[var(--surface-container-low)]"
+            type="button"
+            onClick={props.onToggleFullscreen}
+          >
+            <Maximize className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
 
-function ViewerIcon(props: { file: FileRecord }): React.JSX.Element {
-  switch (props.file.mediaKind) {
-    case 'image':
-      return <Image className="size-4" />
-    case 'audio':
-      return <Music className="size-4" />
-    case 'video':
-      return <Video className="size-4" />
-    default:
-      return <FileText className="size-4" />
-  }
-}
+      {(() => {
+        switch (props.file.mediaKind) {
+          case 'image':
+            if (props.previewUrl !== null) {
+              return (
+                <ImageViewer src={props.previewUrl} alt={`Preview of ${props.file.name}`} />
+              )
+            }
+            break
+          case 'audio':
+            if (props.previewUrl !== null) {
+              return (
+                <audio
+                  controls
+                  aria-label={`Audio preview for ${props.file.name}`}
+                  className="w-full"
+                  src={props.previewUrl}
+                >
+                  <track
+                    kind="captions"
+                    label="No captions available"
+                    src={emptyCaptionTrack}
+                    srcLang="en"
+                  />
+                </audio>
+              )
+            }
+            break
+          case 'video':
+            if (props.previewUrl !== null) {
+              return (
+                <video
+                  controls
+                  playsInline
+                  aria-label={`Video preview for ${props.file.name}`}
+                  className="max-h-[360px] w-full rounded-lg object-cover"
+                >
+                  <source src={props.previewUrl} type={props.file.mimeType} />
+                  <track
+                    kind="captions"
+                    label="No captions available"
+                    src={emptyCaptionTrack}
+                    srcLang="en"
+                  />
+                </video>
+              )
+            }
+            break
+          case 'document':
+            return <DocumentViewer file={props.file} />
+          default:
+            break
+        }
 
-function MetadataRow(props: { label: string; value: string | number }): React.JSX.Element {
-  return (
-    <div className="flex flex-col gap-1 rounded-[22px] bg-white/64 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <span className="text-sm font-medium text-[color:var(--secondary)]">{props.label}</span>
-      <strong className="text-sm font-semibold text-[color:var(--on-surface)]">
-        {props.value}
-      </strong>
+        return (
+          <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] bg-[var(--surface-container-low)] p-6 text-center">
+            <div className="space-y-2">
+              <FileText className="mx-auto size-5 text-[var(--secondary)]" />
+              <p className="text-sm font-medium text-[var(--on-surface)]">{props.file.name}</p>
+              <p className="text-sm text-[var(--secondary)]">
+                {props.file.mediaKind === 'video'
+                  ? 'Video playback will appear here after loading.'
+                  : 'No inline preview available.'}
+              </p>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
 
 export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
-  const inspectedFolderCreatedAt = props.inspectedFolder?.createdAt ?? null
-  const inspectorPanelClass = cn(
-    glassPanelClass,
-    'space-y-5 p-5 sm:p-6 xl:sticky xl:top-4 xl:h-[calc(100svh-2rem)] xl:overflow-y-auto',
-  )
+  const [isSpan, setIsSpan] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   if (props.selectedFile === null && props.inspectedFolder === null) {
     return <></>
   }
 
   if (props.selectedFile !== null) {
-    return (
-      <div
-        className="fixed inset-0 z-50 grid place-items-center bg-[rgba(84,66,73,0.32)] px-4 py-6 backdrop-blur-md"
-        role="presentation"
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            props.onClose()
-          }
-        }}
-        onMouseDown={props.onClose}
-      >
-        <dialog
-          open
-          aria-labelledby="file-preview-title"
-          className={cn(glassPanelClass, 'static m-0 w-full max-w-[1040px] p-5 sm:p-6')}
-        >
-          <div className="space-y-5" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-3">
-                <span className={pillClass}>
-                  {props.mode === 'properties' ? (
-                    <Info className="size-4" />
-                  ) : (
-                    <ViewerIcon file={props.selectedFile} />
-                  )}
-                  {props.mode === 'properties'
-                    ? 'File properties'
-                    : `${formatMediaKind(props.selectedFile.mediaKind)} preview`}
-                </span>
-                <div className="space-y-2">
-                  <h2
-                    className="text-3xl font-semibold tracking-[-0.03em] text-[color:var(--on-surface)]"
-                    id="file-preview-title"
-                  >
-                    {props.selectedFile.name}
-                  </h2>
-                  <p className={sectionSubtextClass}>{props.selectedFile.description}</p>
-                </div>
-              </div>
+    const selectedFile = props.selectedFile
+    const isImage = selectedFile.mediaKind === 'image' && props.previewUrl !== null
 
+    return (
+      <>
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(0,0,0,0.4)] px-4 py-6"
+          role="presentation"
+          tabIndex={-1}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              if (isFullscreen) {
+                setIsFullscreen(false)
+              } else {
+                props.onClose()
+              }
+            }
+          }}
+          onMouseDown={() => {
+            if (!isFullscreen) props.onClose()
+          }}
+        >
+          <dialog
+            open
+            aria-labelledby="file-preview-title"
+            className={`static m-0 w-full animate-[scale-in_200ms_ease-out] rounded-xl border border-[var(--outline-variant)] bg-[var(--card-bg)] p-0 shadow-xl ${
+              isImage && isSpan ? 'max-w-[1200px]' : 'max-w-[960px]'
+            }`}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[var(--outline-variant)] px-6 py-4">
+              <div className="min-w-0 flex-1">
+                <h2
+                  className="truncate text-lg font-semibold text-[var(--on-surface)]"
+                  id="file-preview-title"
+                >
+                  {selectedFile.name}
+                </h2>
+                {props.mode === 'properties' ? (
+                  <p className="text-sm text-[var(--secondary)]">File properties</p>
+                ) : (
+                  <p className="text-sm text-[var(--secondary)]">
+                    {formatMediaKind(selectedFile.mediaKind)} preview
+                  </p>
+                )}
+              </div>
               <button
-                aria-label="Close file preview"
+                aria-label="Close"
                 className={iconButtonClass}
                 type="button"
                 onClick={props.onClose}
@@ -223,90 +644,93 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
               </button>
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_320px]">
-              <div className={cn(darkPanelClass, 'space-y-4 p-4')}>
-                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/12 pb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">{props.selectedFile.name}</h3>
-                    <p className="mt-1 text-sm text-white/72">
-                      {props.mode === 'properties'
-                        ? 'Structured metadata for the current backend-backed file.'
-                        : `${formatMediaKind(props.selectedFile.mediaKind)} preview stage`}
-                    </p>
+            <div
+              className={`grid gap-6 p-6 ${
+                isImage && isSpan ? 'lg:grid-cols-[1fr]' : 'lg:grid-cols-[1fr_300px]'
+              }`}
+            >
+              <ViewerStage
+                file={selectedFile}
+                isPreviewLoading={props.isPreviewLoading}
+                previewErrorMessage={props.previewErrorMessage}
+                previewUrl={props.previewUrl}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={() => setIsFullscreen(true)}
+                isSpan={isSpan}
+                onToggleSpan={() => setIsSpan((prev) => !prev)}
+              />
+
+              {(!isImage || !isSpan) ? (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4">
+                    <h3 className="mb-3 text-sm font-semibold text-[var(--on-surface)]">Details</h3>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-[var(--secondary)]">Type</span>
+                        <span className="text-[var(--on-surface)]">{selectedFile.mimeType}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[var(--secondary)]">Size</span>
+                        <span className="text-[var(--on-surface)]">{formatBytes(selectedFile.sizeBytes)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[var(--secondary)]">Created</span>
+                        <span className="text-[var(--on-surface)]">{formatTimestamp(selectedFile.createdAt)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[var(--secondary)]">Location</span>
+                        <span className="text-right text-[var(--on-surface)]">{props.currentFolderName ?? '...'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[var(--secondary)]">Status</span>
+                        <span className="text-[var(--on-surface)]">{selectedFile.status}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-full border border-white/14 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/84">
-                      {props.selectedFile.mimeType}
-                    </span>
-                    <span className="rounded-full border border-white/14 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/84">
-                      {formatBytes(props.selectedFile.sizeBytes)}
-                    </span>
+                  <div className="rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4">
+                    <button
+                      className={`${secondaryButtonClass} w-full`}
+                      type="button"
+                      onClick={() => {
+                        const link = document.createElement('a')
+                        link.href = `/api/files/${selectedFile.id}/download`
+                        link.download = selectedFile.name
+                        link.click()
+                      }}
+                    >
+                      <Download className="size-4" />
+                      Download
+                    </button>
                   </div>
                 </div>
-
-                <ViewerStage
-                  file={props.selectedFile}
-                  isPreviewLoading={props.isPreviewLoading}
-                  previewErrorMessage={props.previewErrorMessage}
-                  previewUrl={props.previewUrl}
-                />
-              </div>
-
-              <div className="space-y-4">
-                <div className={cn(softCardClass, 'space-y-3 p-4')}>
-                  <MetadataRow label="Created" value={formatTimestamp(props.selectedFile.createdAt)} />
-                  <MetadataRow label="Added" value={formatRelativeTime(props.selectedFile.createdAt)} />
-                  <MetadataRow
-                    label="Location"
-                    value={props.currentFolderName ?? 'Loading current folder'}
-                  />
-                  <MetadataRow label="Status" value={props.selectedFile.status} />
-                </div>
-
-                <div className={cn(softCardClass, 'space-y-3 p-5')}>
-                  <strong className="block text-base font-semibold text-[color:var(--on-surface)]">
-                    {props.mode === 'properties' ? 'Inspector notes' : 'Preview notes'}
-                  </strong>
-                  <p className={sectionSubtextClass}>
-                    {props.mode === 'properties'
-                      ? 'The inspector now reflects real backend metadata, even when the media preview is fetched on demand.'
-                      : 'Preview bytes are fetched only when you open the file, so the library grid stays lightweight.'}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <span className={chipClass}>Inline image</span>
-                    <span className={chipClass}>Audio controls</span>
-                    <span className={chipClass}>Range-ready video</span>
-                  </div>
-                </div>
-              </div>
+              ) : null}
             </div>
-          </div>
-        </dialog>
-      </div>
+          </dialog>
+        </div>
+
+        {isFullscreen && props.previewUrl !== null ? (
+          <ImageFullscreen
+            src={props.previewUrl}
+            alt={selectedFile.name}
+            onClose={() => setIsFullscreen(false)}
+          />
+        ) : null}
+      </>
     )
   }
 
   return (
-    <section className={inspectorPanelClass}>
+    <aside className="fixed inset-y-0 right-0 z-40 w-80 border-l border-[var(--outline-variant)] bg-[var(--card-bg)] p-6 shadow-lg animate-[slide-up_200ms_ease-out]">
       <div className="flex items-start justify-between gap-4">
-        <div className="space-y-3">
-          <span className={pillClass}>
-            <Info className="size-4" />
-            Folder properties
-          </span>
-          <div className="space-y-2">
-            <h2 className="text-3xl font-semibold tracking-[-0.03em] text-[color:var(--on-surface)]">
-              {props.inspectedFolder?.name}
-            </h2>
-            <p className={sectionSubtextClass}>
-              Review this folder before moving, downloading, or deleting it.
-            </p>
-          </div>
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--on-surface)]">
+            {props.inspectedFolder?.name}
+          </h2>
+          <p className="text-sm text-[var(--secondary)]">Folder properties</p>
         </div>
-
         <button
-          aria-label="Close inspector"
+          aria-label="Close"
           className={iconButtonClass}
           type="button"
           onClick={props.onClose}
@@ -315,29 +739,38 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
         </button>
       </div>
 
-      <div className={cn(softCardClass, 'space-y-3 p-4')}>
-        <MetadataRow
-          label="Created"
-          value={
-            inspectedFolderCreatedAt === null
-              ? 'Not available'
-              : formatTimestamp(inspectedFolderCreatedAt)
-          }
-        />
-        <MetadataRow
-          label="Added"
-          value={
-            inspectedFolderCreatedAt === null
-              ? 'Not available'
-              : formatRelativeTime(inspectedFolderCreatedAt)
-          }
-        />
-        <MetadataRow label="Direct items" value={props.inspectedFolder?.itemCount ?? 0} />
-        <MetadataRow
-          label="Parent view"
-          value={props.currentFolderName ?? 'Loading current folder'}
-        />
+      <div className="mt-6 space-y-3 rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] p-4">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]">
+            <Info className="size-5 text-[var(--primary)]" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-[var(--on-surface)]">{props.inspectedFolder?.name}</p>
+            <p className="text-xs text-[var(--secondary)]">{props.inspectedFolder?.itemCount ?? 0} items</p>
+          </div>
+        </div>
+        <div className="text-xs text-[var(--secondary)]">
+          Created {props.inspectedFolder?.createdAt ? formatRelativeTime(props.inspectedFolder.createdAt) : 'N/A'}
+        </div>
       </div>
-    </section>
+    </aside>
+  )
+}
+
+function Download({ className }: { className?: string }): React.JSX.Element {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" x2="12" y1="15" y2="3" />
+    </svg>
   )
 }

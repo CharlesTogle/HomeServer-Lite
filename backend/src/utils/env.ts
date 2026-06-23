@@ -8,13 +8,18 @@ export type RuntimeMode = 'development' | 'production' | 'test';
 export interface ServerConfig {
   accessTokenTtlSeconds: number;
   authTokenSecret: string;
-  databaseUrl?: string;
   host: string;
   persistenceMode: PersistenceMode;
   port: number;
   refreshTokenTtlSeconds: number;
   runtimeMode: RuntimeMode;
+  sqlitePath: string;
   storageRoot: string;
+}
+
+export interface UserSeedConfig {
+  email: string;
+  password: string;
 }
 
 export interface InMemoryTestServerConfigOptions {
@@ -23,18 +28,19 @@ export interface InMemoryTestServerConfigOptions {
   host?: string;
   port?: number;
   refreshTokenTtlSeconds?: number;
+  sqlitePath?: string;
   storageRoot: string;
 }
 
 interface RawServerConfig {
   accessTokenTtlSeconds: number;
   authTokenSecret?: string;
-  databaseUrl?: string;
   host: string;
   persistenceMode: PersistenceMode;
   port: number;
   refreshTokenTtlSeconds: number;
   runtimeMode: RuntimeMode;
+  sqlitePath?: string;
   storageRoot?: string;
 }
 
@@ -51,6 +57,7 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(60 * 60 * 24 * 30),
+  SQLITE_PATH: z.string().optional(),
   STORAGE_ROOT: z.string().optional(),
 });
 
@@ -77,12 +84,12 @@ export function getServerConfig(): ServerConfig {
   return createServerConfig({
     accessTokenTtlSeconds: parsedEnv.data.ACCESS_TOKEN_TTL_SECONDS,
     authTokenSecret: parsedEnv.data.AUTH_TOKEN_SECRET,
-    databaseUrl: parsedEnv.data.DATABASE_URL,
     host: parsedEnv.data.HOST,
     persistenceMode: isExplicitTestMemoryMode ? 'test-memory' : 'durable',
     port: parsedEnv.data.PORT,
     refreshTokenTtlSeconds: parsedEnv.data.REFRESH_TOKEN_TTL_SECONDS,
     runtimeMode: parsedEnv.data.NODE_ENV,
+    sqlitePath: parsedEnv.data.SQLITE_PATH,
     storageRoot: parsedEnv.data.STORAGE_ROOT,
   });
 }
@@ -98,6 +105,7 @@ export function createInMemoryTestServerConfig(
     port: options.port ?? 3999,
     refreshTokenTtlSeconds: options.refreshTokenTtlSeconds ?? 60 * 60 * 24 * 30,
     runtimeMode: 'test',
+    sqlitePath: options.sqlitePath,
     storageRoot: options.storageRoot,
   });
 }
@@ -110,6 +118,11 @@ function createServerConfig(input: RawServerConfig): ServerConfig {
   const storageRoot = path.resolve(
     getRequiredString(input.storageRoot, 'STORAGE_ROOT is required.'),
   );
+  const sqlitePath = input.persistenceMode === 'test-memory'
+    ? ':memory:'
+    : path.resolve(
+        getRequiredString(input.sqlitePath, 'SQLITE_PATH is required.'),
+      );
 
   if (input.persistenceMode === 'test-memory') {
     if (input.runtimeMode !== 'test') {
@@ -126,6 +139,7 @@ function createServerConfig(input: RawServerConfig): ServerConfig {
       port: input.port,
       refreshTokenTtlSeconds: input.refreshTokenTtlSeconds,
       runtimeMode: input.runtimeMode,
+      sqlitePath,
       storageRoot,
     };
   }
@@ -133,12 +147,12 @@ function createServerConfig(input: RawServerConfig): ServerConfig {
   return {
     accessTokenTtlSeconds: input.accessTokenTtlSeconds,
     authTokenSecret,
-    databaseUrl: getRequiredString(input.databaseUrl, 'DATABASE_URL is required.'),
     host: input.host,
     persistenceMode: input.persistenceMode,
     port: input.port,
     refreshTokenTtlSeconds: input.refreshTokenTtlSeconds,
     runtimeMode: input.runtimeMode,
+    sqlitePath,
     storageRoot,
   };
 }

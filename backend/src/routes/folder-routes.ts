@@ -7,13 +7,17 @@ import {
   type FolderResponse,
   toFolderTreeResponse,
   type FolderTreeResponse,
+  type StorageUsageResponse,
 } from '../types/api.js';
 import { UnauthorizedError } from '../utils/http-errors.js';
+import type { GetFolderEntriesInput } from '../services/contracts.js';
 import {
   folderEntriesResponseSchema,
   folderParamsSchema,
   folderResponseSchema,
   folderTreeResponseSchema,
+  sharedFoldersResponseSchema,
+  storageUsageResponseSchema,
 } from './route-schemas.js';
 
 interface CreateFolderBody {
@@ -34,6 +38,20 @@ interface DeleteFolderQuery {
   recursive?: 'false' | 'true';
 }
 
+interface FolderEntriesQuerystring {
+  extensionFilter?: string;
+  limit?: number;
+  offset?: number;
+  search?: string;
+  searchIncludesDirectChildren?: 'false' | 'true';
+  sortDirection?: GetFolderEntriesInput['sortDirection'];
+  sortField?: GetFolderEntriesInput['sortField'];
+  typeFilter?: GetFolderEntriesInput['typeFilter'];
+}
+
+const DEFAULT_FOLDER_ENTRIES_LIMIT = 60;
+const MAX_FOLDER_ENTRIES_LIMIT = 200;
+
 export async function folderRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Reply: FolderTreeResponse }>(
     '/api/folders/tree',
@@ -47,6 +65,33 @@ export async function folderRoutes(app: FastifyInstance): Promise<void> {
     },
     async (request) =>
       toFolderTreeResponse(await app.libraryService.listFolders(getUserId(request))),
+  );
+
+  app.get<{ Reply: FolderTreeResponse }>(
+    '/api/folders/shared',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        response: {
+          200: sharedFoldersResponseSchema,
+        },
+      },
+    },
+    async (request) =>
+      toFolderTreeResponse(await app.libraryService.getSharedFolders(getUserId(request))),
+  );
+
+  app.get<{ Reply: StorageUsageResponse }>(
+    '/api/folders/shared/storage',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        response: {
+          200: storageUsageResponseSchema,
+        },
+      },
+    },
+    async (request) => await app.libraryService.getSharedStorageUsage(getUserId(request)),
   );
 
   app.get<{ Reply: FolderResponse }>(
@@ -115,24 +160,69 @@ export async function folderRoutes(app: FastifyInstance): Promise<void> {
       ),
   );
 
-  app.get<{ Params: FolderParams; Reply: FolderEntriesResponse }>(
+  app.get<{ Params: FolderParams; Querystring: FolderEntriesQuerystring; Reply: FolderEntriesResponse }>(
     '/api/folders/:folderId/entries',
     {
       preHandler: app.authenticate,
       schema: {
         params: folderParamsSchema,
+        querystring: {
+          additionalProperties: false,
+          properties: {
+            extensionFilter: { type: 'string' },
+            limit: { maximum: MAX_FOLDER_ENTRIES_LIMIT, minimum: 1, type: 'integer' },
+            offset: { minimum: 0, type: 'integer' },
+            search: { type: 'string' },
+            searchIncludesDirectChildren: {
+              enum: ['false', 'true'],
+              type: 'string',
+            },
+            sortDirection: {
+              enum: ['asc', 'desc'],
+              type: 'string',
+            },
+            sortField: {
+              enum: ['name', 'date', 'size', 'type'],
+              type: 'string',
+            },
+            typeFilter: {
+              enum: ['all', 'image', 'audio', 'video', 'document', 'archive', 'other'],
+              type: 'string',
+            },
+          },
+          type: 'object',
+        },
         response: {
           200: folderEntriesResponseSchema,
         },
       },
     },
     async (request) => {
+      const input: GetFolderEntriesInput = {
+        extensionFilter: request.query.extensionFilter?.trim().toLowerCase() ?? 'all',
+        limit: request.query.limit ?? DEFAULT_FOLDER_ENTRIES_LIMIT,
+        offset: request.query.offset ?? 0,
+        search: request.query.search?.trim() ?? '',
+        searchIncludesDirectChildren: request.query.searchIncludesDirectChildren === 'true',
+        sortDirection: request.query.sortDirection ?? 'asc',
+        sortField: request.query.sortField ?? 'name',
+        typeFilter: request.query.typeFilter ?? 'all',
+      };
       const entries = await app.libraryService.getFolderEntries(
         getUserId(request),
         request.params.folderId,
+        input,
       );
 
-      return toFolderEntriesResponse(entries.folder, entries.folders, entries.files);
+      return toFolderEntriesResponse(
+        entries.folder,
+        entries.folders,
+        entries.files,
+        entries.nextOffset,
+        entries.totalFileCount,
+        entries.availableExtensions,
+        entries.existingFileNames,
+      );
     },
   );
 
