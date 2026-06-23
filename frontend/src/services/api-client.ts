@@ -31,6 +31,14 @@ export class ApiError extends Error {
 
 let refreshPromise: Promise<string | null> | null = null
 
+export function resolveApiUrl(path: string): string {
+  if (!path.startsWith('/api')) {
+    return path
+  }
+
+  return new URL(path.slice(1), document.baseURI).toString()
+}
+
 function deriveDisplayName(email: string): string {
   const [namePart] = email.split('@')
 
@@ -120,7 +128,8 @@ async function refreshAccessToken(): Promise<string | null> {
   }
 
   refreshPromise = (async () => {
-    const response = await fetch('/api/auth/refresh', {
+    const refreshUrl = resolveApiUrl('/api/auth/refresh')
+    const response = await fetch(refreshUrl, {
       credentials: 'include',
       method: 'POST',
     })
@@ -148,7 +157,8 @@ async function apiRequest(
 ): Promise<Response> {
   const accessToken = useSessionStore.getState().accessToken
   const requestInit = buildRequestInit(accessToken, options)
-  let response = await fetch(input, requestInit)
+  const requestUrl = resolveApiUrl(input)
+  let response = await fetch(requestUrl, requestInit)
 
   if (response.status !== 401 || options.skipAuthRefresh) {
     return response
@@ -160,7 +170,7 @@ async function apiRequest(
     return response
   }
 
-  response = await fetch(input, buildRequestInit(refreshedAccessToken, options))
+  response = await fetch(requestUrl, buildRequestInit(refreshedAccessToken, options))
 
   if (response.status === 401) {
     clearClientSession()

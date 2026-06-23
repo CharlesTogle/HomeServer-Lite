@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type WheelEvent } from 'react'
-import { apiResponse } from '../services/api-client.ts'
+import { apiResponse, resolveApiUrl } from '../services/api-client.ts'
 import { iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui.ts'
 import { useUpdateFileContentMutation } from '../hooks/use-library.ts'
 import type { FileRecord, FolderRecord } from '../types/library.ts'
@@ -118,7 +118,7 @@ function DocumentViewer(props: { file: FileRecord }): React.JSX.Element {
   if (props.file.mimeType === 'application/pdf') {
     return (
       <iframe
-        src={`/api/files/${props.file.id}/download`}
+        src={resolveApiUrl(`/api/files/${props.file.id}/download`)}
         title={props.file.name}
         className="h-[480px] w-full rounded-lg"
       />
@@ -694,7 +694,7 @@ export function MediaViewer(props: MediaViewerProps): React.JSX.Element {
                       type="button"
                       onClick={() => {
                         const link = document.createElement('a')
-                        link.href = `/api/files/${selectedFile.id}/download`
+                        link.href = resolveApiUrl(`/api/files/${selectedFile.id}/download`)
                         link.download = selectedFile.name
                         link.click()
                       }}
