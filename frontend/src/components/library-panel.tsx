@@ -1,6 +1,4 @@
 import {
-  ArrowDownAZ,
-  ArrowUpAZ,
   ArrowRightLeft,
   Bookmark,
   ChevronRight,
@@ -10,12 +8,9 @@ import {
   FolderPlus,
   Image,
   Info,
-  LayoutGrid,
-  List,
   LoaderCircle,
   MoreHorizontal,
   Music,
-  Search,
   Trash2,
   Upload,
   Video,
@@ -23,7 +18,7 @@ import {
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { cn } from '../lib/cn.ts'
-import { fieldInputClass, iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui.ts'
+import { primaryButtonClass, secondaryButtonClass } from '../lib/ui.ts'
 import {
   useAddFavoriteMutation,
   useFavoritesQuery,
@@ -32,7 +27,6 @@ import {
 import {
   useWorkspaceStore,
   type LibrarySortField,
-  type MediaKindFilter,
 } from '../stores/workspace-store.ts'
 import type { FileRecord, FolderContents, FolderRecord } from '../types/library.ts'
 import { formatBytes, formatMediaKind, formatRelativeTime } from '../utils/format.ts'
@@ -65,16 +59,6 @@ function sortFolders(
     return comparison * direction
   })
 }
-
-const fileTypeOptions: Array<{ label: string; value: MediaKindFilter }> = [
-  { label: 'All types', value: 'all' },
-  { label: 'Images', value: 'image' },
-  { label: 'Videos', value: 'video' },
-  { label: 'Audio', value: 'audio' },
-  { label: 'Documents', value: 'document' },
-  { label: 'Archives', value: 'archive' },
-  { label: 'Other', value: 'other' },
-]
 
 interface LibraryPanelProps {
   contents: FolderContents
@@ -199,12 +183,6 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
     librarySortDirection,
     librarySortField,
     libraryTypeFilter,
-    setLibraryExtensionFilter,
-    setLibrarySearchTerm,
-    setLibrarySortDirection,
-    setLibrarySortField,
-    setLibraryTypeFilter,
-    setViewMode,
     viewMode,
   } = useWorkspaceStore(
     useShallow((state) => ({
@@ -213,12 +191,6 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
       librarySortDirection: state.librarySortDirection,
       librarySortField: state.librarySortField,
       libraryTypeFilter: state.libraryTypeFilter,
-      setLibraryExtensionFilter: state.setLibraryExtensionFilter,
-      setLibrarySearchTerm: state.setLibrarySearchTerm,
-      setLibrarySortDirection: state.setLibrarySortDirection,
-      setLibrarySortField: state.setLibrarySortField,
-      setLibraryTypeFilter: state.setLibraryTypeFilter,
-      setViewMode: state.setViewMode,
       viewMode: state.viewMode,
     })),
   )
@@ -240,10 +212,6 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
 
   const deferredSearchTerm = useDeferredValue(librarySearchTerm)
   const normalizedQuery = deferredSearchTerm.trim().toLowerCase()
-  const extensionOptions = useMemo(() => {
-    return ['all', ...props.contents.availableExtensions]
-  }, [props.contents.availableExtensions])
-
   const filteredFolders = useMemo(() => {
     const folders =
       normalizedQuery.length === 0
@@ -305,8 +273,8 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
         </div>
       </div>
 
-      <div className="mb-5 space-y-3">
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+      <div className="mb-5">
+        <div className="hidden sm:flex sm:flex-wrap sm:items-center sm:gap-2">
           <button
             className={`${primaryButtonClass} w-full sm:w-auto`}
             type="button"
@@ -324,102 +292,6 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
             <FolderPlus className="size-4" />
             New folder
           </button>
-        </div>
-
-        <div className="space-y-3">
-          <label className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--outline)]" />
-            <input
-              aria-label="Search"
-              className="h-10 w-full rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] pl-8 pr-3 text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] transition-all focus:border-[var(--primary)] focus:outline-none sm:h-8 sm:w-44 sm:focus:w-60"
-              placeholder="Search..."
-              type="search"
-              value={librarySearchTerm}
-              onChange={(event) => setLibrarySearchTerm(event.currentTarget.value)}
-            />
-          </label>
-
-          <div className="overflow-x-auto pb-1">
-            <div className="flex min-w-max items-center gap-2">
-              <label className="sr-only" htmlFor="library-sort-field">Sort by</label>
-              <select
-                id="library-sort-field"
-                className={cn(fieldInputClass, 'h-9 min-w-[8.5rem] py-0 pr-8 sm:h-8')}
-                value={librarySortField}
-                onChange={(event) => setLibrarySortField(event.currentTarget.value as LibrarySortField)}
-              >
-                <option value="name">Sort: Name</option>
-                <option value="date">Sort: Date</option>
-                <option value="size">Sort: Size</option>
-                <option value="type">Sort: Type</option>
-              </select>
-
-              <button
-                aria-label={librarySortDirection === 'asc' ? 'Ascending sort' : 'Descending sort'}
-                className={`${iconButtonClass} shrink-0`}
-                type="button"
-                onClick={() => setLibrarySortDirection(librarySortDirection === 'asc' ? 'desc' : 'asc')}
-              >
-                {librarySortDirection === 'asc' ? <ArrowUpAZ className="size-4" /> : <ArrowDownAZ className="size-4" />}
-              </button>
-
-              <label className="sr-only" htmlFor="library-type-filter">Filter by type</label>
-              <select
-                id="library-type-filter"
-                className={cn(fieldInputClass, 'h-9 min-w-[8.5rem] py-0 pr-8 sm:h-8')}
-                value={libraryTypeFilter}
-                onChange={(event) => setLibraryTypeFilter(event.currentTarget.value as MediaKindFilter)}
-              >
-                {fileTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-
-              <label className="sr-only" htmlFor="library-extension-filter">Filter by extension</label>
-              <select
-                id="library-extension-filter"
-                className={cn(fieldInputClass, 'h-9 min-w-[8.5rem] py-0 pr-8 sm:h-8')}
-                value={extensionOptions.includes(libraryExtensionFilter) ? libraryExtensionFilter : 'all'}
-                onChange={(event) => setLibraryExtensionFilter(event.currentTarget.value)}
-              >
-                <option value="all">All extensions</option>
-                {extensionOptions
-                  .filter((extension) => extension !== 'all')
-                  .map((extension) => (
-                    <option key={extension} value={extension}>.{extension}</option>
-                  ))}
-              </select>
-
-              <div className="flex shrink-0 items-center rounded-lg border border-[var(--outline-variant)] p-0.5">
-                <button
-                  aria-label="Grid view"
-                  className={cn(
-                    'inline-flex size-8 items-center justify-center rounded-md transition-colors sm:size-7',
-                    viewMode === 'grid'
-                      ? 'bg-[var(--primary)] text-white'
-                      : 'text-[var(--secondary)] hover:bg-[var(--surface-container-low)]',
-                  )}
-                  type="button"
-                  onClick={() => setViewMode('grid')}
-                >
-                  <LayoutGrid className="size-3.5" />
-                </button>
-                <button
-                  aria-label="List view"
-                  className={cn(
-                    'inline-flex size-8 items-center justify-center rounded-md transition-colors sm:size-7',
-                    viewMode === 'list'
-                      ? 'bg-[var(--primary)] text-white'
-                      : 'text-[var(--secondary)] hover:bg-[var(--surface-container-low)]',
-                  )}
-                  type="button"
-                  onClick={() => setViewMode('list')}
-                >
-                  <List className="size-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

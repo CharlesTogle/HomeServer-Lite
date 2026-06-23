@@ -6,7 +6,7 @@ import type {
 } from '../types/library.ts'
 
 export type WorkspaceViewMode = 'grid' | 'list'
-export type AppPage = 'files' | 'account' | 'favorites' | 'trash'
+export type AppPage = 'files' | 'search' | 'account' | 'favorites' | 'trash'
 export type LibrarySortField = FolderEntriesSortField
 export type SortDirection = FolderEntriesSortDirection
 export type MediaKindFilter = FolderEntriesTypeFilter

@@ -191,6 +191,18 @@
   }
 }
 
+@keyframes search-pill-glide {
+  0%,
+  100% {
+    transform: translateX(0);
+    opacity: 0.65;
+  }
+  50% {
+    transform: translateX(12rem);
+    opacity: 1;
+  }
+}
+
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,

@@ -27,6 +27,7 @@ import { LibraryPanel } from './library-panel.tsx'
 import { MediaViewer } from './media-viewer.tsx'
 import { MoveItemModal, type MoveDestinationOption } from './move-item-modal.tsx'
 import { FavoritesPage } from './favorites-page.tsx'
+import { LibrarySearchPage } from './library-search-page.tsx'
 import { TrashPage } from './trash-page.tsx'
 import { UploadPanel } from './upload-panel.tsx'
 
@@ -764,6 +765,12 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
             <FavoritesPage />
           ) : currentPage === 'trash' ? (
             <TrashPage />
+          ) : currentPage === 'search' && currentContents !== null ? (
+            <LibrarySearchPage
+              availableExtensions={currentContents.availableExtensions}
+              currentFolderName={currentContents.currentFolder.name}
+              isSearchingSubfolders={folderContentsQueryInput.searchIncludesDirectChildren}
+            />
           ) : isFolderContentsLoading ? (
             <div className="flex flex-1 items-center justify-center p-8">
               <div className="flex flex-col items-center gap-2">
@@ -773,7 +780,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
             </div>
           ) : null}
 
-          {currentPage === 'files' && folderContentsQuery.error !== null ? (
+          {(currentPage === 'files' || currentPage === 'search') && folderContentsQuery.error !== null ? (
             <div className="p-6">
               <div className="rounded-lg border border-[var(--error-container)] bg-[var(--error-container)] px-4 py-3 text-sm text-[var(--on-error-container)]">
                 {folderContentsQuery.error.message}

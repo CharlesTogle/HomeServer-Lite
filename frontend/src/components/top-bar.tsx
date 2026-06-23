@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut, Menu, Moon, Sun, User } from 'lucide-react'
+import { ChevronDown, LogOut, Menu, Moon, Search, Sun, User } from 'lucide-react'
 import { useState } from 'react'
 import { useLogoutMutation } from '../hooks/use-auth.ts'
 import { useSessionStore } from '../stores/session-store.ts'
@@ -33,6 +33,7 @@ export function TopBar({ showSidebarToggle = false, onToggleSidebar, onNavigate 
   const sessionUser = useSessionStore((state) => state.sessionUser)
   const setCurrentPage = useWorkspaceStore((state) => state.setCurrentPage)
   const currentPage = useWorkspaceStore((state) => state.currentPage)
+  const librarySearchTerm = useWorkspaceStore((state) => state.librarySearchTerm)
   const darkMode = useWorkspaceStore((state) => state.darkMode)
   const toggleDarkMode = useWorkspaceStore((state) => state.toggleDarkMode)
   const logoutMutation = useLogoutMutation()
@@ -64,7 +65,50 @@ export function TopBar({ showSidebarToggle = false, onToggleSidebar, onNavigate 
         <span className="text-sm font-semibold text-[var(--on-surface)]">HomeServer</span>
       </div>
 
+      {currentPage !== 'account' ? (
+        <button
+          className={`group mx-3 hidden min-w-0 flex-1 items-center justify-center md:flex ${
+            currentPage === 'search'
+              ? 'text-[var(--primary)]'
+              : 'text-[var(--secondary)] hover:text-[var(--on-surface)]'
+          }`}
+          type="button"
+          onClick={() => {
+            onNavigate?.()
+            setCurrentPage('search')
+          }}
+          aria-label="Open search and sort controls"
+        >
+          <span className="relative flex h-10 w-full max-w-md items-center overflow-hidden rounded-full border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_86%,var(--surface-container-low))] px-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors group-hover:border-[var(--outline)]">
+            <span className="absolute inset-y-1 left-1 w-16 rounded-full bg-[color-mix(in_srgb,var(--primary)_12%,transparent)] animate-[search-pill-glide_4.8s_ease-in-out_infinite]" />
+            <span className="relative z-10 flex min-w-0 items-center gap-3">
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--card-bg)] text-[var(--primary)] shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                <Search className="size-3.5" />
+              </span>
+              <span className="truncate text-sm font-medium">
+                {librarySearchTerm.trim().length > 0 ? `Search: ${librarySearchTerm}` : 'Search, sort, and filter here'}
+              </span>
+            </span>
+          </span>
+        </button>
+      ) : null}
+
       <div className="flex items-center gap-1">
+        {currentPage !== 'account' ? (
+          <button
+            className={`${iconButtonClass} md:hidden ${currentPage === 'search' ? 'border-[var(--primary)] text-[var(--primary)]' : ''}`}
+            type="button"
+            onClick={() => {
+              onNavigate?.()
+              setCurrentPage('search')
+            }}
+            aria-label="Open search and sort controls"
+            title="Search, sort, and filter"
+          >
+            <Search className="size-4" />
+          </button>
+        ) : null}
+
         <button
           className={iconButtonClass}
           type="button"
