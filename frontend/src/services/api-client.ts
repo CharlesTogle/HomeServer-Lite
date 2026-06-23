@@ -36,7 +36,11 @@ export function resolveApiUrl(path: string): string {
     return path
   }
 
-  return new URL(path, window.location.origin).toString()
+  const appBasePath = window.location.pathname.endsWith('/')
+    ? window.location.pathname
+    : `${window.location.pathname}/`
+
+  return new URL(`.${path}`, `${window.location.origin}${appBasePath}`).toString()
 }
 
 function deriveDisplayName(email: string): string {
