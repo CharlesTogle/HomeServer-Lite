@@ -8,6 +8,7 @@ import { pipeline } from 'node:stream/promises';
 
 import type Database from 'better-sqlite3';
 import type { MultipartFile } from '@fastify/multipart';
+import pLimit from 'p-limit';
 
 import type {
   CreateFolderInput,
@@ -23,6 +24,7 @@ import type {
   FolderTreeFolder,
   LibraryServiceContract,
   TrashEntry,
+  UploadItemContentInput,
   UpdateFileInput,
   UpdateFolderInput,
   UploadBatchSnapshot,
@@ -181,7 +183,9 @@ interface UploadBatchRow {
   expected_count: number | null;
   completed_count: number;
   failed_count: number;
+  received_bytes: number;
   status: string;
+  total_bytes: number;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -193,10 +197,14 @@ interface UploadItemRow {
   user_id: string;
   batch_id: string;
   client_idempotency_key: string;
+  mime_type: string;
   original_name: string;
+  received_bytes: number;
+  resolved_name: string | null;
   status: string;
   file_id: string | null;
   error_code: string | null;
+  total_bytes: number;
   created_at: string;
   updated_at: string;
 }
@@ -228,6 +236,8 @@ interface BatchCountsRow {
   [column: string]: unknown;
   completed_count: number;
   failed_count: number;
+  received_bytes: number;
+  total_bytes: number;
 }
 
 function toUserRecord(row: UserRow) {
@@ -281,7 +291,9 @@ function toUploadBatchRecord(row: UploadBatchRow): UploadBatchRecord {
     expectedCount: row.expected_count ?? null,
     completedCount: row.completed_count,
     failedCount: row.failed_count,
+    receivedBytes: row.received_bytes,
     status: row.status as UploadBatchRecord['status'],
+    totalBytes: row.total_bytes,
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
     completedAt: row.completed_at === null ? null : toDate(row.completed_at),
@@ -294,10 +306,14 @@ function toUploadItemRecord(row: UploadItemRow): UploadItemRecord {
     userId: row.user_id,
     batchId: row.batch_id,
     clientIdempotencyKey: row.client_idempotency_key,
+    mimeType: row.mime_type,
     originalName: row.original_name,
+    receivedBytes: row.received_bytes,
+    resolvedName: row.resolved_name ?? null,
     status: row.status as UploadItemRecord['status'],
     fileId: row.file_id ?? null,
     errorCode: row.error_code ?? null,
+    totalBytes: row.total_bytes,
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
   };
@@ -305,6 +321,8 @@ function toUploadItemRecord(row: UploadItemRow): UploadItemRecord {
 
 export class SqliteLibraryService implements LibraryServiceContract {
   private readonly db: Database.Database;
+  private readonly finalizeUploadJobLimit = pLimit(2);
+  private readonly inFlightFinalizeJobs = new Map<string, Promise<void>>();
   private readonly storageRoot: string;
 
   public constructor(db: Database.Database, storageRoot: string) {
@@ -934,6 +952,13 @@ export class SqliteLibraryService implements LibraryServiceContract {
       throw new BadRequestError('expectedCount must be a positive integer.');
     }
 
+    if (
+      input.totalBytes !== undefined &&
+      (!Number.isInteger(input.totalBytes) || input.totalBytes < 0)
+    ) {
+      throw new BadRequestError('totalBytes must be a non-negative integer.');
+    }
+
     await this.getFolder(userId, input.folderId);
 
     const id = randomUUID();
@@ -941,10 +966,13 @@ export class SqliteLibraryService implements LibraryServiceContract {
 
     this.db
       .prepare(
-        `INSERT INTO upload_batches (id, user_id, folder_id, expected_count, completed_count, failed_count, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 0, 0, 'open', ?, ?)`,
+        `INSERT INTO upload_batches (
+           id, user_id, folder_id, expected_count, completed_count, failed_count,
+           received_bytes, status, total_bytes, created_at, updated_at
+         )
+         VALUES (?, ?, ?, ?, 0, 0, 0, 'open', ?, ?, ?)`,
       )
-      .run(id, userId, input.folderId, input.expectedCount ?? null, now, now);
+      .run(id, userId, input.folderId, input.expectedCount ?? null, input.totalBytes ?? 0, now, now);
 
     const row = queryRequiredRow<UploadBatchRow>(
       this.db,
@@ -974,7 +1002,12 @@ export class SqliteLibraryService implements LibraryServiceContract {
       throw new BadRequestError('clientIdempotencyKey must not be empty.');
     }
 
+    if (!Number.isInteger(input.totalBytes) || input.totalBytes < 0) {
+      throw new BadRequestError('totalBytes must be a non-negative integer.');
+    }
+
     const originalName = ensureValidDisplayName(input.originalName);
+    const mimeType = input.mimeType?.trim() || 'application/octet-stream';
 
     const existingItem = queryOptionalRow<UploadItemRow>(
       this.db,
@@ -992,10 +1025,13 @@ export class SqliteLibraryService implements LibraryServiceContract {
 
     this.db
       .prepare(
-        `INSERT INTO upload_items (id, user_id, batch_id, client_idempotency_key, original_name, status, file_id, error_code, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)`,
+        `INSERT INTO upload_items (
+           id, user_id, batch_id, client_idempotency_key, mime_type, original_name,
+           received_bytes, resolved_name, status, file_id, error_code, total_bytes, created_at, updated_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, 0, NULL, 'pending', NULL, NULL, ?, ?, ?)`,
       )
-      .run(id, userId, batchId, clientIdempotencyKey, originalName, now, now);
+      .run(id, userId, batchId, clientIdempotencyKey, mimeType, originalName, input.totalBytes, now, now);
 
     const row = queryRequiredRow<UploadItemRow>(
       this.db,
@@ -1022,6 +1058,12 @@ export class SqliteLibraryService implements LibraryServiceContract {
       [batchId],
     );
 
+    for (const item of items) {
+      if (item.status === 'uploaded') {
+        this.enqueueUploadItemFinalization(item.id);
+      }
+    }
+
     return {
       batch: toUploadBatchRecord(batchRow),
       items: items.map(toUploadItemRecord),
@@ -1031,12 +1073,8 @@ export class SqliteLibraryService implements LibraryServiceContract {
   public async uploadItemContent(
     userId: string,
     itemId: string,
-    multipartFile: MultipartFile | undefined,
-  ): Promise<FileRecord> {
-    if (multipartFile === undefined) {
-      throw new BadRequestError('Multipart file is required.');
-    }
-
+    input: UploadItemContentInput,
+  ): Promise<UploadItemRecord> {
     const itemRow = queryOptionalRow<UploadItemRow>(
       this.db,
       'SELECT * FROM upload_items WHERE id = ? AND user_id = ?',
@@ -1048,12 +1086,12 @@ export class SqliteLibraryService implements LibraryServiceContract {
 
     const item = toUploadItemRecord(itemRow);
 
-    if (item.status === 'complete' && item.fileId !== null) {
-      return this.getFile(userId, item.fileId);
+    if (item.status === 'complete') {
+      return item;
     }
 
-    if (item.status === 'uploading') {
-      throw new ConflictError('Upload item is already processing.');
+    if (item.status === 'processing') {
+      throw new ConflictError('Upload item is already being finalized.');
     }
 
     const batchRow = queryRequiredRow<UploadBatchRow>(
@@ -1063,166 +1101,104 @@ export class SqliteLibraryService implements LibraryServiceContract {
     );
     const batch = toUploadBatchRecord(batchRow);
 
-    if (batch.status !== 'open') {
-      throw new BadRequestError('Upload batch is not open.');
+    if (batch.status === 'completed') {
+      throw new BadRequestError('Upload batch is already completed.');
     }
 
-    const folder = await this.getFolder(userId, batch.folderId);
-    const effectiveOriginalName = ensureValidDisplayName(
-      multipartFile.filename.trim() === '' ? item.originalName : multipartFile.filename,
-    );
-    const displayName = this.resolveAvailableFileName(userId, folder.id, effectiveOriginalName, null);
+    if (input.byteOffset !== item.receivedBytes) {
+      throw new ConflictError('Upload offset does not match the persisted upload position.');
+    }
 
-    const tempStorageRelPath = path.posix.join(
-      buildRootStorageRelPath(userId),
-      '_tmp',
-      `${item.id}.part`,
-    );
+    if (item.receivedBytes >= item.totalBytes) {
+      if (item.status !== 'uploaded') {
+        this.db
+          .prepare(
+            `UPDATE upload_items
+             SET status = 'uploaded', updated_at = ?
+             WHERE id = ? AND user_id = ?`,
+          )
+          .run(new Date().toISOString(), itemId, userId);
+
+        this.refreshBatchStatus(batch.id);
+        this.enqueueUploadItemFinalization(item.id);
+
+        const updatedItem = queryRequiredRow<UploadItemRow>(
+          this.db,
+          'SELECT * FROM upload_items WHERE id = ? AND user_id = ?',
+          [itemId, userId],
+        );
+
+        return toUploadItemRecord(updatedItem);
+      }
+
+      if (item.status === 'uploaded') {
+        this.enqueueUploadItemFinalization(item.id);
+      }
+
+      return item;
+    }
+
+    const tempStorageRelPath = this.buildUploadTempStorageRelPath(userId, item.id);
     const tempAbsolutePath = this.resolveAbsolutePath(tempStorageRelPath);
-    const fileId = randomUUID();
-    const storedExtension = getStoredExtension(effectiveOriginalName);
-    const finalStorageRelPath = buildFileStorageRelPath(
-      folder.storageRelPath,
-      fileId,
-      storedExtension,
-    );
     const now = new Date().toISOString();
 
-    // Claim the item for processing
-    const claimResult = this.db
+    this.db
       .prepare(
         `UPDATE upload_items
-         SET status = 'uploading', error_code = NULL, updated_at = ?
-         WHERE id = ? AND user_id = ? AND status IN ('pending', 'failed')
-         RETURNING id`,
+         SET error_code = NULL, status = 'uploading', updated_at = ?
+         WHERE id = ? AND user_id = ? AND status IN ('pending', 'failed', 'uploaded', 'uploading')`,
       )
-      .get(now, itemId, userId);
+      .run(now, itemId, userId);
 
-    if (claimResult === undefined) {
-      const currentItem = queryOptionalRow<UploadItemRow>(
+    await mkdir(path.dirname(tempAbsolutePath), { recursive: true });
+
+    try {
+      const receivedBytes = await this.appendUploadStream({
+        destinationPath: tempAbsolutePath,
+        itemId,
+        offset: input.byteOffset,
+        totalBytes: item.totalBytes,
+        userId,
+        contentStream: input.contentStream,
+      });
+
+      const nextStatus = receivedBytes === item.totalBytes ? 'uploaded' : 'uploading';
+      const updateNow = new Date().toISOString();
+
+      this.db
+        .prepare(
+          `UPDATE upload_items
+           SET error_code = NULL, received_bytes = ?, status = ?, updated_at = ?
+           WHERE id = ? AND user_id = ?`,
+        )
+        .run(receivedBytes, nextStatus, updateNow, itemId, userId);
+
+      this.refreshBatchStatus(batch.id);
+
+      const updatedItem = queryRequiredRow<UploadItemRow>(
         this.db,
         'SELECT * FROM upload_items WHERE id = ? AND user_id = ?',
         [itemId, userId],
       );
 
-      if (currentItem !== null) {
-        const current = toUploadItemRecord(currentItem);
-        if (current.status === 'complete' && current.fileId !== null) {
-          return this.getFile(userId, current.fileId);
-        }
-        if (current.status === 'uploading') {
-          throw new ConflictError('Upload item is already processing.');
-        }
+      if (nextStatus === 'uploaded') {
+        this.enqueueUploadItemFinalization(itemId);
       }
 
-      throw new ConflictError('Upload item could not be claimed for processing.');
-    }
-
-    this.ensureStorageUsageRow(userId);
-
-    const isSharedFolder = this.folderIsSharedWithUser(folder.id, userId);
-    if (isSharedFolder) {
-      this.ensureSharedFolderStorageRow(folder.id);
-    }
-
-    await mkdir(path.dirname(tempAbsolutePath), { recursive: true });
-    await mkdir(this.resolveAbsolutePath(folder.storageRelPath), {
-      recursive: true,
-    });
-
-    try {
-      const uploadStats = await this.streamMultipartFile(multipartFile, tempAbsolutePath);
-
-      const usageRow = queryRequiredRow<StorageUsageRow>(
-        this.db,
-        'SELECT user_id, used_bytes, quota_bytes FROM user_storage_usage WHERE user_id = ?',
-        [userId],
-      );
-
-      if (usageRow.used_bytes + uploadStats.sizeBytes > usageRow.quota_bytes) {
-        throw new BadRequestError('Storage quota exceeded.');
-      }
-
-      if (isSharedFolder) {
-        const sharedUsageRow = queryRequiredRow<{ used_bytes: number; quota_bytes: number }>(
-          this.db,
-          'SELECT used_bytes, quota_bytes FROM shared_folder_storage WHERE folder_id = ?',
-          [folder.id],
-        );
-        if (sharedUsageRow.used_bytes + uploadStats.sizeBytes > sharedUsageRow.quota_bytes) {
-          throw new BadRequestError('Shared folder storage quota exceeded.');
-        }
-      }
-
-      await rename(tempAbsolutePath, this.resolveAbsolutePath(finalStorageRelPath));
-
-      const fileRecord = withTransaction(this.db, () => {
-        const createdFile = this.db
-          .prepare(
-            `INSERT INTO files (
-               id, user_id, folder_id, display_name, original_name, stored_extension,
-               mime_type, size_bytes, sha256, status, storage_rel_path, created_at, updated_at
-             )
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?)`,
-          )
-          .run(
-            fileId,
-            userId,
-            folder.id,
-            displayName,
-            displayName,
-            storedExtension,
-            multipartFile.mimetype || 'application/octet-stream',
-            uploadStats.sizeBytes,
-            uploadStats.sha256,
-            finalStorageRelPath,
-            now,
-            now,
-          );
-
-        if (createdFile.changes !== 1) {
-          throw new Error('Failed to insert file record.');
-        }
-
-        const updateResult = this.db
-          .prepare(
-            `UPDATE upload_items
-             SET error_code = NULL, file_id = ?, original_name = ?, status = 'complete', updated_at = ?
-             WHERE id = ? AND status = 'uploading' AND user_id = ?`,
-          )
-          .run(fileId, displayName, new Date().toISOString(), itemId, userId);
-
-        if (updateResult.changes !== 1) {
-          throw new ConflictError('Upload item could not be completed.');
-        }
-
-        this.db
-          .prepare(
-            'UPDATE user_storage_usage SET used_bytes = used_bytes + ? WHERE user_id = ?',
-          )
-          .run(uploadStats.sizeBytes, userId);
-
-        if (isSharedFolder) {
-          this.db
-            .prepare(
-              'UPDATE shared_folder_storage SET used_bytes = used_bytes + ? WHERE folder_id = ?',
-            )
-            .run(uploadStats.sizeBytes, folder.id);
-        }
-
+      return toUploadItemRecord(updatedItem);
+    } catch (error) {
+      if (this.isRecoverableUploadStreamError(error)) {
         this.refreshBatchStatus(batch.id);
 
-        const fileRow = queryRequiredRow<FileRow>(
+        const currentItem = queryRequiredRow<UploadItemRow>(
           this.db,
-          'SELECT * FROM files WHERE id = ?',
-          [fileId],
+          'SELECT * FROM upload_items WHERE id = ? AND user_id = ?',
+          [itemId, userId],
         );
 
-        return toFileRecord(fileRow);
-      });
+        return toUploadItemRecord(currentItem);
+      }
 
-      return fileRecord;
-    } catch (error) {
       const errorNow = new Date().toISOString();
       const errorCode = this.getUploadErrorCode(error);
 
@@ -1230,13 +1206,11 @@ export class SqliteLibraryService implements LibraryServiceContract {
         .prepare(
           `UPDATE upload_items
            SET error_code = ?, status = 'failed', updated_at = ?
-           WHERE id = ? AND status = 'uploading' AND user_id = ?`,
+           WHERE id = ? AND user_id = ?`,
         )
         .run(errorCode, errorNow, itemId, userId);
 
       this.refreshBatchStatus(batch.id);
-      await this.safeUnlink(tempStorageRelPath);
-      await this.safeUnlink(finalStorageRelPath);
 
       throw error;
     }
@@ -1615,6 +1589,15 @@ export class SqliteLibraryService implements LibraryServiceContract {
       return error.code;
     }
 
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof (error as { code: string }).code === 'string'
+    ) {
+      return (error as { code: string }).code;
+    }
+
     return 'UPLOAD_FAILED';
   }
 
@@ -1632,7 +1615,9 @@ export class SqliteLibraryService implements LibraryServiceContract {
       this.db,
       `SELECT
          COUNT(*) FILTER (WHERE status = 'complete') AS completed_count,
-         COUNT(*) FILTER (WHERE status = 'failed') AS failed_count
+         COUNT(*) FILTER (WHERE status = 'failed') AS failed_count,
+         COALESCE(SUM(received_bytes), 0) AS received_bytes,
+         COALESCE(SUM(total_bytes), 0) AS total_bytes
        FROM upload_items WHERE batch_id = ?`,
       [batchId],
     );
@@ -1656,10 +1641,23 @@ export class SqliteLibraryService implements LibraryServiceContract {
     this.db
       .prepare(
         `UPDATE upload_batches
-         SET completed_count = ?, failed_count = ?, status = ?, completed_at = ?, updated_at = ?
+         SET completed_count = ?, failed_count = ?, received_bytes = ?, status = ?, total_bytes = ?, completed_at = ?, updated_at = ?
          WHERE id = ?`,
       )
-      .run(counts.completed_count, counts.failed_count, nextStatus, completedAt, now, batchId);
+      .run(
+        counts.completed_count,
+        counts.failed_count,
+        counts.received_bytes,
+        nextStatus,
+        counts.total_bytes,
+        completedAt,
+        now,
+        batchId,
+      );
+  }
+
+  private buildUploadTempStorageRelPath(userId: string, itemId: string): string {
+    return path.posix.join(buildRootStorageRelPath(userId), '_tmp', `${itemId}.part`);
   }
 
   private resolveAbsolutePath(storageRelPath: string): string {
@@ -1708,6 +1706,258 @@ export class SqliteLibraryService implements LibraryServiceContract {
       sha256: hash.digest('hex'),
       sizeBytes,
     };
+  }
+
+  private async appendUploadStream(input: {
+    contentStream: NodeJS.ReadableStream;
+    destinationPath: string;
+    itemId: string;
+    offset: number;
+    totalBytes: number;
+    userId: string;
+  }): Promise<number> {
+    let receivedBytes = input.offset;
+    let lastPersistedBytes = input.offset;
+    let lastPersistedAt = Date.now();
+
+    const persistProgress = (): void => {
+      if (receivedBytes === lastPersistedBytes) {
+        return;
+      }
+
+      this.db
+        .prepare(
+          `UPDATE upload_items
+           SET received_bytes = ?, updated_at = ?
+           WHERE id = ? AND user_id = ?`,
+        )
+        .run(receivedBytes, new Date().toISOString(), input.itemId, input.userId);
+
+      lastPersistedBytes = receivedBytes;
+      lastPersistedAt = Date.now();
+    };
+
+    const progressTransform = new Transform({
+      transform: (chunk: Buffer, _encoding, callback) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        receivedBytes += buffer.length;
+
+        if (receivedBytes > input.totalBytes) {
+          callback(new BadRequestError('Upload exceeded the declared file size.'));
+          return;
+        }
+
+        if (Date.now() - lastPersistedAt >= 75) {
+          persistProgress();
+        }
+
+        callback(null, buffer);
+      },
+    });
+
+    const writer = createWriteStream(input.destinationPath, {
+      flags: input.offset === 0 ? 'w' : 'a',
+    });
+
+    await pipeline(input.contentStream, progressTransform, writer);
+    persistProgress();
+
+    return receivedBytes;
+  }
+
+  private enqueueUploadItemFinalization(itemId: string): void {
+    if (this.inFlightFinalizeJobs.has(itemId)) {
+      return;
+    }
+
+    const job = this.finalizeUploadJobLimit(async () => {
+      try {
+        await this.finalizeUploadedItem(itemId);
+      } finally {
+        this.inFlightFinalizeJobs.delete(itemId);
+      }
+    });
+
+    this.inFlightFinalizeJobs.set(itemId, job);
+  }
+
+  private async finalizeUploadedItem(itemId: string): Promise<void> {
+    const itemRow = queryOptionalRow<UploadItemRow>(
+      this.db,
+      'SELECT * FROM upload_items WHERE id = ?',
+      [itemId],
+    );
+    if (itemRow === null) {
+      return;
+    }
+
+    const item = toUploadItemRecord(itemRow);
+    if (item.status === 'complete' || item.status === 'processing') {
+      return;
+    }
+
+    if (item.status !== 'uploaded' || item.receivedBytes !== item.totalBytes) {
+      return;
+    }
+
+    const batchRow = queryRequiredRow<UploadBatchRow>(
+      this.db,
+      'SELECT * FROM upload_batches WHERE id = ?',
+      [item.batchId],
+    );
+    const batch = toUploadBatchRecord(batchRow);
+    const folder = await this.getFolder(item.userId, batch.folderId);
+    const tempStorageRelPath = this.buildUploadTempStorageRelPath(item.userId, item.id);
+    const tempAbsolutePath = this.resolveAbsolutePath(tempStorageRelPath);
+    const displayName = this.resolveAvailableFileName(item.userId, folder.id, item.originalName, null);
+    const fileId = randomUUID();
+    const storedExtension = getStoredExtension(item.originalName);
+    const finalStorageRelPath = buildFileStorageRelPath(folder.storageRelPath, fileId, storedExtension);
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `UPDATE upload_items
+         SET resolved_name = ?, status = 'processing', updated_at = ?
+         WHERE id = ? AND status = 'uploaded'`,
+      )
+      .run(displayName, now, itemId);
+
+    try {
+      this.ensureStorageUsageRow(item.userId);
+
+      const isSharedFolder = this.folderIsSharedWithUser(folder.id, item.userId);
+      if (isSharedFolder) {
+        this.ensureSharedFolderStorageRow(folder.id);
+      }
+
+      const uploadStats = await this.computeFileDigest(tempAbsolutePath);
+
+      if (uploadStats.sizeBytes !== item.totalBytes) {
+        throw new ConflictError('Uploaded bytes do not match the registered file size.');
+      }
+
+      const usageRow = queryRequiredRow<StorageUsageRow>(
+        this.db,
+        'SELECT user_id, used_bytes, quota_bytes FROM user_storage_usage WHERE user_id = ?',
+        [item.userId],
+      );
+
+      if (usageRow.used_bytes + uploadStats.sizeBytes > usageRow.quota_bytes) {
+        throw new BadRequestError('Storage quota exceeded.');
+      }
+
+      if (isSharedFolder) {
+        const sharedUsageRow = queryRequiredRow<{ used_bytes: number; quota_bytes: number }>(
+          this.db,
+          'SELECT used_bytes, quota_bytes FROM shared_folder_storage WHERE folder_id = ?',
+          [folder.id],
+        );
+
+        if (sharedUsageRow.used_bytes + uploadStats.sizeBytes > sharedUsageRow.quota_bytes) {
+          throw new BadRequestError('Shared folder storage quota exceeded.');
+        }
+      }
+
+      await mkdir(this.resolveAbsolutePath(folder.storageRelPath), { recursive: true });
+      await rename(tempAbsolutePath, this.resolveAbsolutePath(finalStorageRelPath));
+
+      withTransaction(this.db, () => {
+        const createdFile = this.db
+          .prepare(
+            `INSERT INTO files (
+               id, user_id, folder_id, display_name, original_name, stored_extension,
+               mime_type, size_bytes, sha256, status, storage_rel_path, created_at, updated_at
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?)`,
+          )
+          .run(
+            fileId,
+            item.userId,
+            folder.id,
+            displayName,
+            item.originalName,
+            storedExtension,
+            item.mimeType,
+            uploadStats.sizeBytes,
+            uploadStats.sha256,
+            finalStorageRelPath,
+            now,
+            now,
+          );
+
+        if (createdFile.changes !== 1) {
+          throw new Error('Failed to insert file record.');
+        }
+
+        const updatedItem = this.db
+          .prepare(
+            `UPDATE upload_items
+             SET error_code = NULL, file_id = ?, received_bytes = ?, resolved_name = ?, status = 'complete', updated_at = ?
+             WHERE id = ? AND status = 'processing'`,
+          )
+          .run(fileId, uploadStats.sizeBytes, displayName, now, itemId);
+
+        if (updatedItem.changes !== 1) {
+          throw new ConflictError('Upload item could not be finalized.');
+        }
+
+        this.db
+          .prepare('UPDATE user_storage_usage SET used_bytes = used_bytes + ? WHERE user_id = ?')
+          .run(uploadStats.sizeBytes, item.userId);
+
+        if (isSharedFolder) {
+          this.db
+            .prepare(
+              'UPDATE shared_folder_storage SET used_bytes = used_bytes + ? WHERE folder_id = ?',
+            )
+            .run(uploadStats.sizeBytes, folder.id);
+        }
+
+        this.refreshBatchStatus(item.batchId);
+      });
+    } catch (error) {
+      this.db
+        .prepare(
+          `UPDATE upload_items
+           SET error_code = ?, status = 'failed', updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(this.getUploadErrorCode(error), new Date().toISOString(), itemId);
+
+      this.refreshBatchStatus(item.batchId);
+      throw error;
+    }
+  }
+
+  private async computeFileDigest(
+    absolutePath: string,
+  ): Promise<{ sha256: string; sizeBytes: number }> {
+    const hash = createHash('sha256');
+    let sizeBytes = 0;
+
+    for await (const chunk of fs.createReadStream(absolutePath)) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      hash.update(buffer);
+      sizeBytes += buffer.length;
+    }
+
+    return {
+      sha256: hash.digest('hex'),
+      sizeBytes,
+    };
+  }
+
+  private isRecoverableUploadStreamError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof (error as { code: string }).code === 'string' &&
+      ['ECONNRESET', 'ERR_STREAM_PREMATURE_CLOSE', 'UND_ERR_ABORTED'].includes(
+        (error as { code: string }).code,
+      )
+    );
   }
 
   public async getTrashedEntries(userId: string): Promise<TrashEntry[]> {

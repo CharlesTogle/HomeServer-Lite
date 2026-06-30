@@ -68,8 +68,13 @@ export interface UploadItemResponse {
   errorCode: string | null;
   fileId: string | null;
   id: string;
+  mimeType: string;
   originalName: string;
+  progressPercent: number;
+  receivedBytes: number;
+  resolvedName: string | null;
   status: string;
+  totalBytes: number;
   updatedAt: string;
 }
 
@@ -82,8 +87,19 @@ export interface UploadBatchResponse {
   folderId: string;
   id: string;
   items: UploadItemResponse[];
+  progressPercent: number;
+  receivedBytes: number;
   status: string;
+  totalBytes: number;
   updatedAt: string;
+}
+
+function toProgressPercent(receivedBytes: number, totalBytes: number): number {
+  if (totalBytes <= 0) {
+    return 100;
+  }
+
+  return Math.max(0, Math.min(100, Math.round((receivedBytes / totalBytes) * 100)));
 }
 
 export function toAuthResponse(
@@ -172,7 +188,10 @@ export function toUploadBatchResponse(
     folderId: batch.folderId,
     id: batch.id,
     items: items.map(toUploadItemResponse),
+    progressPercent: toProgressPercent(batch.receivedBytes, batch.totalBytes),
+    receivedBytes: batch.receivedBytes,
     status: batch.status,
+    totalBytes: batch.totalBytes,
     updatedAt: batch.updatedAt.toISOString(),
   };
 }
@@ -184,8 +203,13 @@ export function toUploadItemResponse(item: UploadItemRecord): UploadItemResponse
     errorCode: item.errorCode,
     fileId: item.fileId,
     id: item.id,
+    mimeType: item.mimeType,
     originalName: item.originalName,
+    progressPercent: toProgressPercent(item.receivedBytes, item.totalBytes),
+    receivedBytes: item.receivedBytes,
+    resolvedName: item.resolvedName,
     status: item.status,
+    totalBytes: item.totalBytes,
     updatedAt: item.updatedAt.toISOString(),
   };
 }

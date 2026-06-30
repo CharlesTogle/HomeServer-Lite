@@ -67,6 +67,7 @@ interface LibraryPanelProps {
   busyItemId: string | null
   isLoadingMoreFiles: boolean
   isSearchingSubfolders: boolean
+  showPrimaryActions?: boolean
   onOpenUpload: () => void
   onOpenCreateFolder: () => void
   onLoadMoreFiles: () => void
@@ -178,6 +179,7 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const {
+    currentPage,
     librarySearchTerm,
     libraryExtensionFilter,
     librarySortDirection,
@@ -186,6 +188,7 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
     viewMode,
   } = useWorkspaceStore(
     useShallow((state) => ({
+      currentPage: state.currentPage,
       libraryExtensionFilter: state.libraryExtensionFilter,
       librarySearchTerm: state.librarySearchTerm,
       librarySortDirection: state.librarySortDirection,
@@ -210,7 +213,7 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
     }
   }
 
-  const deferredSearchTerm = useDeferredValue(librarySearchTerm)
+  const deferredSearchTerm = useDeferredValue(currentPage === 'search' ? librarySearchTerm : '')
   const normalizedQuery = deferredSearchTerm.trim().toLowerCase()
   const filteredFolders = useMemo(() => {
     const folders =
@@ -273,27 +276,29 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
         </div>
       </div>
 
-      <div className="mb-5">
-        <div className="hidden sm:flex sm:flex-wrap sm:items-center sm:gap-2">
-          <button
-            className={`${primaryButtonClass} w-full sm:w-auto`}
-            type="button"
-            onClick={props.onOpenUpload}
-          >
-            <Upload className="size-4" />
-            Upload
-          </button>
-          <button
-            aria-label="Create folder"
-            className={`${secondaryButtonClass} w-full sm:w-auto`}
-            type="button"
-            onClick={props.onOpenCreateFolder}
-          >
-            <FolderPlus className="size-4" />
-            New folder
-          </button>
+      {props.showPrimaryActions !== false ? (
+        <div className="mb-5">
+          <div className="hidden sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+            <button
+              className={`${primaryButtonClass} w-full sm:w-auto`}
+              type="button"
+              onClick={props.onOpenUpload}
+            >
+              <Upload className="size-4" />
+              Upload
+            </button>
+            <button
+              aria-label="Create folder"
+              className={`${secondaryButtonClass} w-full sm:w-auto`}
+              type="button"
+              onClick={props.onOpenCreateFolder}
+            >
+              <FolderPlus className="size-4" />
+              New folder
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="mb-4 flex flex-col gap-1 text-xs text-[var(--secondary)] sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <span>
@@ -632,26 +637,28 @@ export function LibraryPanel(props: LibraryPanelProps): React.JSX.Element {
         </div>
       ) : null}
 
-      <div className="fixed inset-x-0 bottom-[4.5rem] z-20 px-4 sm:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-2 gap-2 rounded-2xl border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_94%,white)] p-2 shadow-lg backdrop-blur">
-          <button
-            className={`${primaryButtonClass} h-11 w-full`}
-            type="button"
-            onClick={props.onOpenUpload}
-          >
-            <Upload className="size-4" />
-            Upload
-          </button>
-          <button
-            className={`${secondaryButtonClass} h-11 w-full`}
-            type="button"
-            onClick={props.onOpenCreateFolder}
-          >
-            <FolderPlus className="size-4" />
-            Folder
-          </button>
+      {props.showPrimaryActions !== false ? (
+        <div className="fixed inset-x-0 bottom-[4.5rem] z-20 px-4 sm:hidden">
+          <div className="mx-auto grid max-w-md grid-cols-2 gap-2 rounded-2xl border border-[var(--outline-variant)] bg-[color-mix(in_srgb,var(--card-bg)_94%,white)] p-2 shadow-lg backdrop-blur">
+            <button
+              className={`${primaryButtonClass} h-11 w-full`}
+              type="button"
+              onClick={props.onOpenUpload}
+            >
+              <Upload className="size-4" />
+              Upload
+            </button>
+            <button
+              className={`${secondaryButtonClass} h-11 w-full`}
+              type="button"
+              onClick={props.onOpenCreateFolder}
+            >
+              <FolderPlus className="size-4" />
+              Folder
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   )
 }

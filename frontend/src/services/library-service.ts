@@ -1,4 +1,4 @@
-import { apiBlob, apiJson, apiResponse } from './api-client.ts'
+import { ApiError, apiBlob, apiJson, apiResponse } from './api-client.ts'
 import type {
   CreateFolderInput,
   DeleteItemInput,
@@ -13,7 +13,9 @@ import type {
   PermanentlyDeleteTrashInput,
   RestoreTrashInput,
   TrashEntry,
+  UploadBatchProgress,
   UploadInput,
+  UploadItemProgress,
 } from '../types/library.ts'
 
 interface BackendFolderResponse {
@@ -57,11 +59,35 @@ interface BackendFolderEntriesResponse {
 }
 
 interface BackendUploadBatchResponse {
+  completedAt: string | null
+  completedCount: number
+  createdAt: string
+  expectedCount: number | null
+  failedCount: number
+  folderId: string
   id: string
+  items: BackendUploadItemResponse[]
+  progressPercent: number
+  receivedBytes: number
+  status: string
+  totalBytes: number
+  updatedAt: string
 }
 
 interface BackendUploadItemResponse {
+  batchId: string
+  createdAt: string
+  errorCode: string | null
+  fileId: string | null
   id: string
+  mimeType: string
+  originalName: string
+  progressPercent: number
+  receivedBytes: number
+  resolvedName: string | null
+  status: string
+  totalBytes: number
+  updatedAt: string
 }
 
 export interface PreparedDownload {
@@ -149,7 +175,7 @@ function toFolderRecord(
     createdAt: folder.createdAt,
     id: folder.id,
     itemCount,
-    name: folder.name,
+    name: folder.isRoot ? 'My Drive' : folder.name,
     parentId: folder.parentFolderId,
   }
 }
@@ -430,8 +456,74 @@ export async function createFolder(input: CreateFolderInput): Promise<FolderReco
 }
 
 export interface UploadResult {
-  files: FileRecord[]
+  batch: UploadBatchProgress
   duplicateWarnings: string[]
+}
+
+function toUploadItemProgress(item: BackendUploadItemResponse): UploadItemProgress {
+  return {
+    batchId: item.batchId,
+    errorCode: item.errorCode,
+    fileId: item.fileId,
+    id: item.id,
+    mimeType: item.mimeType,
+    originalName: item.originalName,
+    progressPercent: item.progressPercent,
+    receivedBytes: item.receivedBytes,
+    resolvedName: item.resolvedName,
+    status: item.status,
+    totalBytes: item.totalBytes,
+  }
+}
+
+function toUploadBatchProgress(batch: BackendUploadBatchResponse): UploadBatchProgress {
+  return {
+    completedAt: batch.completedAt,
+    completedCount: batch.completedCount,
+    createdAt: batch.createdAt,
+    expectedCount: batch.expectedCount,
+    failedCount: batch.failedCount,
+    folderId: batch.folderId,
+    id: batch.id,
+    items: batch.items.map(toUploadItemProgress),
+    progressPercent: batch.progressPercent,
+    receivedBytes: batch.receivedBytes,
+    status: batch.status,
+    totalBytes: batch.totalBytes,
+    updatedAt: batch.updatedAt,
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function getUploadConcurrency(fileCount: number): number {
+  if (fileCount <= 1) {
+    return 1
+  }
+
+  return Math.min(fileCount, 4)
+}
+
+async function runConcurrent<TInput>(
+  items: readonly TInput[],
+  concurrency: number,
+  worker: (item: TInput, index: number) => Promise<void>,
+): Promise<void> {
+  let nextIndex = 0
+
+  async function runWorker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex
+      nextIndex += 1
+      await worker(items[currentIndex] as TInput, currentIndex)
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => runWorker()))
 }
 
 export async function uploadFiles(input: UploadInput): Promise<UploadResult> {
@@ -439,47 +531,122 @@ export async function uploadFiles(input: UploadInput): Promise<UploadResult> {
     throw new Error('Files could not be uploaded, please choose at least one file and try again.')
   }
 
+  const totalBytes = input.files.reduce((sum, file) => sum + file.size, 0)
+
   const uploadBatch = await apiJson<BackendUploadBatchResponse>('/api/upload-batches', {
     json: {
       expectedCount: input.files.length,
       folderId: input.folderId,
+      totalBytes,
     },
     method: 'POST',
   })
-  const uploadedFiles: FileRecord[] = []
-  const duplicateWarnings: string[] = []
 
-  for (const [index, file] of input.files.entries()) {
-    const uploadItem = await apiJson<BackendUploadItemResponse>(
+  const uploadItems = await Promise.all(
+    input.files.map(async (file, index) => {
+      return await apiJson<BackendUploadItemResponse>(
       `/api/upload-batches/${uploadBatch.id}/items`,
       {
         json: {
           clientIdempotencyKey: `${file.name}-${file.lastModified}-${index}`,
+          mimeType: file.type || 'application/octet-stream',
           originalName: file.name,
+          totalBytes: file.size,
         },
         method: 'POST',
       },
     )
-    const formData = new FormData()
+    }),
+  )
 
-    formData.append('file', file)
+  let latestBatch = toUploadBatchProgress({
+    ...uploadBatch,
+    items: uploadItems,
+  })
+  input.onProgress?.(latestBatch)
 
-    const uploadedFile = await apiJson<BackendFileResponse>(
-      `/api/upload-items/${uploadItem.id}/content`,
-      {
-        body: formData,
-        method: 'POST',
-      },
-    )
+  const pollBatch = async (): Promise<UploadBatchProgress> => {
+    while (true) {
+      const snapshot = toUploadBatchProgress(
+        await apiJson<BackendUploadBatchResponse>(`/api/upload-batches/${uploadBatch.id}`),
+      )
+      latestBatch = snapshot
+      input.onProgress?.(snapshot)
 
-    if (uploadedFile.name !== file.name) {
-      duplicateWarnings.push(`Duplicate filename detected: "${file.name}" was saved as "${uploadedFile.name}"`)
+      const hasPendingWork = snapshot.items.some((item) => item.status !== 'complete' && item.status !== 'failed')
+      if (!hasPendingWork) {
+        return snapshot
+      }
+
+      await sleep(100)
     }
-
-    uploadedFiles.push(toFileRecord(uploadedFile))
   }
 
-  return { files: uploadedFiles, duplicateWarnings }
+  const pollingPromise = pollBatch()
+
+  await runConcurrent(uploadItems, getUploadConcurrency(input.files.length), async (uploadItem, index) => {
+    const file = input.files[index]
+
+    while (true) {
+      const currentItem = latestBatch.items.find((item) => item.id === uploadItem.id) ?? toUploadItemProgress(uploadItem)
+
+      if (currentItem.status === 'complete') {
+        return
+      }
+
+      if (currentItem.status === 'failed' && currentItem.receivedBytes >= currentItem.totalBytes) {
+        throw new Error(`Upload failed for ${currentItem.originalName}.`)
+      }
+
+      if (currentItem.status === 'processing' || currentItem.status === 'uploaded') {
+        await sleep(100)
+        continue
+      }
+
+      const offset = currentItem.receivedBytes
+      if (offset >= file.size && file.size > 0) {
+        await sleep(100)
+        continue
+      }
+
+      try {
+        await apiJson<BackendUploadItemResponse>(`/api/upload-items/${uploadItem.id}/content`, {
+          body: file.slice(offset),
+          headers: {
+            'content-type': 'application/octet-stream',
+            'x-upload-offset': String(offset),
+          },
+          method: 'PUT',
+        })
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.statusCode >= 400 &&
+          error.statusCode < 500 &&
+          error.statusCode !== 409 &&
+          error.statusCode !== 429
+        ) {
+          throw error
+        }
+
+        await sleep(150)
+      }
+    }
+  })
+
+  const finalBatch = await pollingPromise
+  const duplicateWarnings = finalBatch.items
+    .filter((item) => item.resolvedName !== null && item.resolvedName !== item.originalName)
+    .map((item) => `Duplicate filename detected: "${item.originalName}" was saved as "${item.resolvedName}"`)
+
+  if (finalBatch.failedCount > 0) {
+    throw new Error('Some files could not be uploaded, please retry the failed uploads.')
+  }
+
+  return {
+    batch: finalBatch,
+    duplicateWarnings,
+  }
 }
 
 export async function deleteItem(input: DeleteItemInput): Promise<void> {

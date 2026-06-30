@@ -1,6 +1,7 @@
 import { LoaderCircle, Upload, X } from 'lucide-react'
 import { useRef, useState, type ChangeEvent } from 'react'
 import { dangerButtonClass, iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui.ts'
+import type { UploadBatchProgress } from '../types/library.ts'
 import { formatBytes } from '../utils/format.ts'
 
 interface UploadPanelProps {
@@ -8,6 +9,7 @@ interface UploadPanelProps {
   existingFileNames: string[]
   isPending: boolean
   errorMessage: string | null
+  progress: UploadBatchProgress | null
   onClose: () => void
   onUpload: (files: File[]) => Promise<void>
 }
@@ -123,21 +125,67 @@ export function UploadPanel(props: UploadPanelProps): React.JSX.Element {
 
         {selectedFiles.length > 0 ? (
           <div className="mt-4 grid max-h-[240px] gap-2 overflow-y-auto">
-            {selectedFiles.map((file) => (
-              <div
-                key={`${file.name}-${file.lastModified}`}
-                className="flex items-center justify-between gap-3 rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] px-4 py-2.5"
-              >
-                <div className="min-w-0 flex-1 truncate">
-                  <span className="truncate text-sm font-medium text-[var(--on-surface)]">
-                    {file.name}
-                  </span>
+            {selectedFiles.map((file, index) => {
+              const progressItem = props.progress?.items[index] ?? null
+
+              return (
+                <div
+                  key={`${file.name}-${file.lastModified}`}
+                  className="rounded-lg border border-[var(--outline-variant)] bg-[var(--card-bg)] px-4 py-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1 truncate">
+                      <span className="truncate text-sm font-medium text-[var(--on-surface)]">
+                        {file.name}
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-xs text-[var(--secondary)]">
+                      {formatBytes(file.size)}
+                    </span>
+                  </div>
+
+                  {progressItem !== null ? (
+                    <>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--surface-container-low)]">
+                        <div
+                          className="h-full rounded-full bg-[var(--primary)] transition-[width] duration-100 ease-out"
+                          style={{ width: `${progressItem.progressPercent}%` }}
+                        />
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[var(--secondary)]">
+                        <span className="capitalize">{progressItem.status}</span>
+                        <span>
+                          {formatBytes(progressItem.receivedBytes)} / {formatBytes(progressItem.totalBytes)}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
-                <span className="shrink-0 text-xs text-[var(--secondary)]">
-                  {formatBytes(file.size)}
-                </span>
-              </div>
-            ))}
+              )
+            })}
+          </div>
+        ) : null}
+
+        {props.progress !== null ? (
+          <div className="mt-4 rounded-lg border border-[var(--outline-variant)] bg-[var(--surface-container-low)] px-4 py-3">
+            <div className="flex items-center justify-between gap-3 text-sm text-[var(--on-surface)]">
+              <span className="font-medium">Batch progress</span>
+              <span>{props.progress.progressPercent}%</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--card-bg)]">
+              <div
+                className="h-full rounded-full bg-[var(--primary)] transition-[width] duration-100 ease-out"
+                style={{ width: `${props.progress.progressPercent}%` }}
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[var(--secondary)]">
+              <span>
+                {props.progress.completedCount} complete, {props.progress.failedCount} failed
+              </span>
+              <span>
+                {formatBytes(props.progress.receivedBytes)} / {formatBytes(props.progress.totalBytes)}
+              </span>
+            </div>
           </div>
         ) : null}
 

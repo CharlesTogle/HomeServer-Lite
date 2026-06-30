@@ -18,7 +18,13 @@ import {
   prepareFolderDownload,
 } from '../services/library-service.ts'
 import { useWorkspaceStore } from '../stores/workspace-store.ts'
-import type { FileRecord, FolderRecord, FolderTreeNode, LibraryItemKind } from '../types/library.ts'
+import type {
+  FileRecord,
+  FolderRecord,
+  FolderTreeNode,
+  LibraryItemKind,
+  UploadBatchProgress,
+} from '../types/library.ts'
 import { triggerBlobDownload } from '../utils/download.ts'
 import { ConfirmationModal } from './confirmation-modal.tsx'
 import { CreateFolderModal } from './create-folder-modal.tsx'
@@ -262,12 +268,13 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
   const folderContentsQueryInput = useMemo(() => ({
     extensionFilter: libraryExtensionFilter,
     limit: 60,
-    search: deferredSearchTerm,
-    searchIncludesDirectChildren: deferredSearchTerm.length > 0,
+    search: currentPage === 'search' ? deferredSearchTerm : '',
+    searchIncludesDirectChildren: currentPage === 'search' && deferredSearchTerm.length > 0,
     sortDirection: librarySortDirection,
     sortField: librarySortField,
     typeFilter: libraryTypeFilter,
   }), [
+    currentPage,
     deferredSearchTerm,
     libraryExtensionFilter,
     librarySortDirection,
@@ -307,6 +314,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
   const [downloadingItemId, setDownloadingItemId] = useState<string | null>(null)
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null)
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false)
+  const [uploadProgress, setUploadProgress] = useState<UploadBatchProgress | null>(null)
   const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState<boolean>(false)
   const [newFolderName, setNewFolderName] = useState<string>('')
 
@@ -379,7 +387,11 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
     moveTarget !== null && folderTreeQuery.data !== undefined
       ? buildMoveDestinationOptions(folderTreeQuery.data, moveTarget)
       : []
-  const isFolderContentsLoading = selectedFolderId === null || (folderContentsQuery.isPending && currentContents === null)
+  const isFolderContentsLoading =
+    selectedFolderId === null ||
+    folderTreeQuery.data === undefined ||
+    sharedFoldersQuery.isPending ||
+    (currentContents === null && folderContentsQuery.error === null)
 
   function resetActionErrors(): void {
     setActionErrorMessage(null)
@@ -626,10 +638,12 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
     await uploadFilesMutation.mutateAsync({
       folderId: selectedFolderId,
       files,
+      onProgress: setUploadProgress,
     })
 
     setSelectedFileId(null)
     setInspectorTarget(null)
+    setUploadProgress(null)
     setIsUploadModalOpen(false)
   }
 
@@ -766,11 +780,53 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
           ) : currentPage === 'trash' ? (
             <TrashPage />
           ) : currentPage === 'search' && currentContents !== null ? (
-            <LibrarySearchPage
-              availableExtensions={currentContents.availableExtensions}
-              currentFolderName={currentContents.currentFolder.name}
-              isSearchingSubfolders={folderContentsQueryInput.searchIncludesDirectChildren}
-            />
+            <>
+              <LibrarySearchPage
+                availableExtensions={currentContents.availableExtensions}
+                currentFolderName={currentContents.currentFolder.name}
+                isSearchingSubfolders={folderContentsQueryInput.searchIncludesDirectChildren}
+              />
+
+              {librarySearchTerm.length > 0 ? (
+                <LibraryPanel
+                  busyItemId={busyItemId}
+                  contents={currentContents}
+                  inspectedFolderId={inspectedFolder?.id ?? null}
+                  isLoadingMoreFiles={folderContentsQuery.isFetchingNextPage}
+                  isSearchingSubfolders={folderContentsQueryInput.searchIncludesDirectChildren}
+                  showPrimaryActions={false}
+                  onLoadMoreFiles={() => {
+                    if (folderContentsQuery.hasNextPage) {
+                      void folderContentsQuery.fetchNextPage()
+                    }
+                  }}
+                  selectedFileId={activeInspectorFile?.id ?? selectedFileId}
+                  showFilesLoadingState={folderContentsQuery.isFetching && currentContents.files.length === 0}
+                  onOpenCreateFolder={handleOpenCreateFolderModal}
+                  onOpenUpload={() => setIsUploadModalOpen(true)}
+                  onOpenFolder={handleOpenFolder}
+                  onRequestDeleteFolder={handleRequestDeleteFolder}
+                  onRequestDeleteFile={handleRequestDeleteFile}
+                  onRequestDownloadFolder={(folder) => {
+                    void handleRequestDownloadFolder(folder)
+                  }}
+                  onRequestDownloadFile={(file) => {
+                    void handleRequestDownloadFile(file)
+                  }}
+                  onRequestMoveFolder={handleRequestMoveFolder}
+                  onRequestMoveFile={handleRequestMoveFile}
+                  onRequestShowFolderProperties={handleRequestShowFolderProperties}
+                  onRequestShowFileProperties={handleRequestShowFileProperties}
+                  onSelectFile={handleSelectFile}
+                />
+              ) : (
+                <div className="px-6 pb-6">
+                  <div className="mx-auto max-w-4xl rounded-2xl border border-[var(--outline-variant)] bg-[var(--card-bg)] px-5 py-6 text-sm text-[var(--secondary)]">
+                    Type a search and press Enter or click Search to show results.
+                  </div>
+                </div>
+              )}
+            </>
           ) : isFolderContentsLoading ? (
             <div className="flex flex-1 items-center justify-center p-8">
               <div className="flex flex-col items-center gap-2">
@@ -873,7 +929,11 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
           existingFileNames={currentContents.existingFileNames}
           errorMessage={uploadFilesMutation.error?.message ?? null}
           isPending={uploadFilesMutation.isPending}
-          onClose={() => setIsUploadModalOpen(false)}
+          progress={uploadProgress}
+          onClose={() => {
+            setUploadProgress(null)
+            setIsUploadModalOpen(false)
+          }}
           onUpload={handleUpload}
         />
       ) : null}

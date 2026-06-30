@@ -1,16 +1,13 @@
 import { type FastifyInstance, type FastifyRequest } from 'fastify';
 
 import {
-  toFileResponse,
   toUploadBatchResponse,
   toUploadItemResponse,
-  type FileResponse,
   type UploadBatchResponse,
   type UploadItemResponse,
 } from '../types/api.js';
-import { UnauthorizedError } from '../utils/http-errors.js';
+import { BadRequestError, UnauthorizedError } from '../utils/http-errors.js';
 import {
-  fileResponseSchema,
   uploadBatchParamsSchema,
   uploadBatchResponseSchema,
   uploadItemParamsSchema,
@@ -20,11 +17,14 @@ import {
 interface CreateUploadBatchBody {
   expectedCount?: number;
   folderId: string;
+  totalBytes?: number;
 }
 
 interface CreateUploadItemBody {
   clientIdempotencyKey: string;
+  mimeType?: string;
   originalName: string;
+  totalBytes: number;
 }
 
 interface UploadBatchParams {
@@ -46,6 +46,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           properties: {
             expectedCount: { minimum: 1, type: 'integer' },
             folderId: { type: 'string' },
+            totalBytes: { minimum: 0, type: 'integer' },
           },
           required: ['folderId'],
           type: 'object',
@@ -59,6 +60,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       const batch = await app.libraryService.createUploadBatch(getUserId(request), {
         expectedCount: request.body.expectedCount,
         folderId: request.body.folderId,
+        totalBytes: request.body.totalBytes,
       });
 
       reply.code(201);
@@ -97,9 +99,11 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           additionalProperties: false,
           properties: {
             clientIdempotencyKey: { minLength: 1, type: 'string' },
+            mimeType: { minLength: 1, type: 'string' },
             originalName: { minLength: 1, type: 'string' },
+            totalBytes: { minimum: 0, type: 'integer' },
           },
-          required: ['clientIdempotencyKey', 'originalName'],
+          required: ['clientIdempotencyKey', 'originalName', 'totalBytes'],
           type: 'object',
         },
         params: uploadBatchParamsSchema,
@@ -121,28 +125,40 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.post<{ Params: UploadItemParams; Reply: FileResponse }>(
+  app.put<{ Body: NodeJS.ReadableStream; Params: UploadItemParams; Reply: UploadItemResponse }>(
     '/api/upload-items/:itemId/content',
     {
       preHandler: app.authenticate,
       schema: {
         params: uploadItemParamsSchema,
         response: {
-          201: fileResponseSchema,
+          202: uploadItemResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const multipartFile = await request.file();
-      const file = await app.libraryService.uploadItemContent(
-        getUserId(request),
-        request.params.itemId,
-        multipartFile,
+      const offsetHeader = request.headers['x-upload-offset'];
+      const byteOffset = Number.parseInt(
+        Array.isArray(offsetHeader) ? offsetHeader[0] ?? '' : offsetHeader ?? '0',
+        10,
       );
 
-      reply.code(201);
+      if (!Number.isInteger(byteOffset) || byteOffset < 0) {
+        throw new BadRequestError('x-upload-offset must be a non-negative integer.');
+      }
 
-      return toFileResponse(file);
+      const uploadItem = await app.libraryService.uploadItemContent(
+        getUserId(request),
+        request.params.itemId,
+        {
+          byteOffset,
+          contentStream: request.body,
+        },
+      );
+
+      reply.code(202);
+
+      return toUploadItemResponse(uploadItem);
     },
   );
 }

@@ -5,6 +5,10 @@ import fp from 'fastify-plugin';
 const multipartPluginImpl: FastifyPluginAsync = async function multipartPlugin(
   app,
 ): Promise<void> {
+  app.addContentTypeParser('application/octet-stream', (_request, payload, done) => {
+    done(null, payload);
+  });
+
   await app.register(multipart, {
     limits: {
       files: 1,

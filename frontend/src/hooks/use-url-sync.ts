@@ -23,6 +23,8 @@ export function useUrlSync(): void {
     const page: AppPage =
       pageParam === 'account'
         ? 'account'
+        : pageParam === 'search'
+          ? 'search'
         : pageParam === 'favorites'
           ? 'favorites'
           : pageParam === 'trash'

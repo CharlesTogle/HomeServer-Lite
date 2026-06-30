@@ -162,6 +162,13 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (user_id, item_id)
   )`,
   `CREATE INDEX IF NOT EXISTS user_favorites_user_id_idx ON user_favorites (user_id)`,
+  // Migration 7: resumable upload progress tracking
+  `ALTER TABLE upload_batches ADD COLUMN total_bytes INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE upload_batches ADD COLUMN received_bytes INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE upload_items ADD COLUMN mime_type TEXT NOT NULL DEFAULT 'application/octet-stream'`,
+  `ALTER TABLE upload_items ADD COLUMN total_bytes INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE upload_items ADD COLUMN received_bytes INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE upload_items ADD COLUMN resolved_name TEXT`,
 ];
 
 function simpleHash(input: string): string {

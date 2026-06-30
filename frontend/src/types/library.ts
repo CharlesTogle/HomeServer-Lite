@@ -60,6 +60,37 @@ export interface CreateFolderInput {
 export interface UploadInput {
   folderId: string
   files: File[]
+  onProgress?: (progress: UploadBatchProgress) => void
+}
+
+export interface UploadItemProgress {
+  batchId: string
+  errorCode: string | null
+  fileId: string | null
+  id: string
+  mimeType: string
+  originalName: string
+  progressPercent: number
+  receivedBytes: number
+  resolvedName: string | null
+  status: string
+  totalBytes: number
+}
+
+export interface UploadBatchProgress {
+  completedAt: string | null
+  completedCount: number
+  createdAt: string
+  expectedCount: number | null
+  failedCount: number
+  folderId: string
+  id: string
+  items: UploadItemProgress[]
+  progressPercent: number
+  receivedBytes: number
+  status: string
+  totalBytes: number
+  updatedAt: string
 }
 
 export interface DeleteItemInput {

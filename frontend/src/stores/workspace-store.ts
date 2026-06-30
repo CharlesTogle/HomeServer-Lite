@@ -21,6 +21,7 @@ interface WorkspaceStore {
   librarySortDirection: SortDirection
   libraryTypeFilter: MediaKindFilter
   libraryExtensionFilter: string
+  librarySearchDraft: string
   librarySearchTerm: string
   setSelectedFolderId: (folderId: string | null) => void
   setSelectedFileId: (fileId: string | null) => void
@@ -30,6 +31,7 @@ interface WorkspaceStore {
   setLibrarySortDirection: (direction: SortDirection) => void
   setLibraryTypeFilter: (filter: MediaKindFilter) => void
   setLibraryExtensionFilter: (filter: string) => void
+  setLibrarySearchDraft: (value: string) => void
   setLibrarySearchTerm: (value: string) => void
   toggleDarkMode: () => void
   reset: () => void
@@ -54,6 +56,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set) => ({
   librarySortDirection: 'asc',
   libraryTypeFilter: 'all',
   libraryExtensionFilter: 'all',
+  librarySearchDraft: '',
   librarySearchTerm: '',
   setSelectedFolderId: (folderId) => {
     set({ selectedFolderId: folderId })
@@ -79,6 +82,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set) => ({
   setLibraryExtensionFilter: (filter) => {
     set({ libraryExtensionFilter: filter })
   },
+  setLibrarySearchDraft: (value) => {
+    set({ librarySearchDraft: value })
+  },
   setLibrarySearchTerm: (value) => {
     set({ librarySearchTerm: value })
   },
@@ -103,6 +109,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set) => ({
       librarySortDirection: 'asc',
       libraryTypeFilter: 'all',
       libraryExtensionFilter: 'all',
+      librarySearchDraft: '',
       librarySearchTerm: '',
     })
   },

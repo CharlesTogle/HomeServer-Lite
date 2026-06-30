@@ -2,7 +2,13 @@ export type DatabaseMode = 'sqlite' | 'test-memory';
 
 export type FileStatus = 'ready' | 'uploading';
 export type UploadBatchStatus = 'completed' | 'open' | 'partial';
-export type UploadItemStatus = 'complete' | 'failed' | 'pending' | 'uploading';
+export type UploadItemStatus =
+  | 'complete'
+  | 'failed'
+  | 'pending'
+  | 'processing'
+  | 'uploaded'
+  | 'uploading';
 
 export interface UserRecord {
   createdAt: Date;
@@ -65,7 +71,9 @@ export interface UploadBatchRecord {
   failedCount: number;
   folderId: string;
   id: string;
+  receivedBytes: number;
   status: UploadBatchStatus;
+  totalBytes: number;
   updatedAt: Date;
   userId: string;
 }
@@ -77,8 +85,12 @@ export interface UploadItemRecord {
   errorCode: string | null;
   fileId: string | null;
   id: string;
+  mimeType: string;
   originalName: string;
+  receivedBytes: number;
+  resolvedName: string | null;
   status: UploadItemStatus;
+  totalBytes: number;
   updatedAt: Date;
   userId: string;
 }

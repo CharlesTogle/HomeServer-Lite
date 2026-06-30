@@ -39,11 +39,19 @@ export interface UpdateFileInput {
 export interface CreateUploadBatchInput {
   expectedCount?: number;
   folderId: string;
+  totalBytes?: number;
 }
 
 export interface CreateUploadItemInput {
   clientIdempotencyKey: string;
+  mimeType?: string;
   originalName: string;
+  totalBytes: number;
+}
+
+export interface UploadItemContentInput {
+  byteOffset: number;
+  contentStream: NodeJS.ReadableStream;
 }
 
 export interface FileReadDescriptor {
@@ -159,8 +167,8 @@ export interface LibraryServiceContract {
   uploadItemContent(
     userId: string,
     itemId: string,
-    multipartFile: MultipartFile | undefined,
-  ): Promise<FileRecord>;
+    input: UploadItemContentInput,
+  ): Promise<UploadItemRecord>;
   getStorageUsage(userId: string): Promise<{ usedBytes: number; quotaBytes: number }>;
   // Trash support
   getTrashedEntries(userId: string): Promise<TrashEntry[]>;
