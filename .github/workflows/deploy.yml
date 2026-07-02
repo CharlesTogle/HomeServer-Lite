@@ -28,7 +28,7 @@ jobs:
 
       - name: Build on server
         run: |
-          ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_rsa charles@100.116.210.110 '
+          ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_rsa deploy@100.116.210.110 '
             cd /home/charles/home/HomeServer-Lite &&
             git pull origin master &&
             npm run build
