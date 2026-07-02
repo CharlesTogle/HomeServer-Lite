@@ -774,7 +774,7 @@ export function HomeShell({ isMobileSidebarOpen, onCloseMobileSidebar }: HomeShe
           {sidebarContent}
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
           {currentPage === 'favorites' ? (
             <FavoritesPage />
           ) : currentPage === 'trash' ? (
